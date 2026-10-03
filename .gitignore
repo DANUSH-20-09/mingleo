@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build artifacts
+dist/
+
+# Environment files
+.env
+.env.local
+*.local
+
+# System / OS
+.DS_Store
+Thumbs.db
+
+# Zip files
+*.zip
