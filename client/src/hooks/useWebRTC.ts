@@ -403,7 +403,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         try {
           console.warn('[WebRTC] Fast ICE restart triggered via TURN relay...');
           activePc.restartIce();
-          activePc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: true })
+          activePc.createOffer({ iceRestart: true })
             .then(async (offer) => {
               if (activePc.signalingState === 'closed') return;
               await activePc.setLocalDescription(offer);
@@ -469,10 +469,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
     // 6. If initiator, create offer
     if (matchData.isInitiator) {
-      pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      })
+      pc.createOffer()
         .then(async (offer) => {
           if (pc.signalingState === 'closed') return;
           await pc.setLocalDescription(offer);
@@ -511,10 +508,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         }
         await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
-        const answer = await activePc.createAnswer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true
-        });
+        const answer = await activePc.createAnswer();
         await activePc.setLocalDescription(answer);
 
         socket.emit('signal_answer', {

@@ -33,6 +33,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     return !!stream && stream.getVideoTracks().some(t => t.readyState !== 'ended');
   });
 
+  const [hasRenderedFrame, setHasRenderedFrame] = useState<boolean>(() => isLocal);
+
   // Local audio is always muted to prevent echo. Remote audio plays unless muted or restricted by browser.
   const shouldMuteAudio = isLocal || isMuted || isRemoteMuted || muteVideoElement;
 
@@ -43,6 +45,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     if (!stream) {
       videoEl.srcObject = null;
       setHasActiveVideoTrack(false);
+      setHasRenderedFrame(isLocal);
       return;
     }
 
@@ -50,6 +53,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       const vTracks = stream.getVideoTracks();
       const hasLive = vTracks.length > 0 && vTracks.some(t => t.readyState !== 'ended');
       setHasActiveVideoTrack(hasLive);
+      if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+        setHasRenderedFrame(true);
+      }
     };
 
     checkVideo();
@@ -70,6 +76,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     const startPlayback = async () => {
       try {
         await videoEl.play();
+        if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          setHasRenderedFrame(true);
+        }
         // If unmuted playback succeeded and was previously marked restricted, lift restriction
         if (!shouldMuteAudio && isAudioRestricted) {
           videoEl.muted = false;
@@ -106,16 +115,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     stream.getVideoTracks().forEach(t => {
       t.addEventListener('unmute', () => {
         checkVideo();
+        setHasRenderedFrame(true);
         startPlayback();
       });
-      t.addEventListener('mute', checkVideo);
+      t.addEventListener('mute', () => {
+        if (!isLocal) setHasRenderedFrame(false);
+        checkVideo();
+      });
     });
 
     return () => {
       stream.removeEventListener('addtrack', handleTrackChange);
       stream.removeEventListener('removetrack', handleTrackChange);
     };
-  }, [stream, shouldMuteAudio, isAudioRestricted]);
+  }, [stream, shouldMuteAudio, isAudioRestricted, isLocal]);
 
   const handleUnmute = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -133,6 +146,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     }
   };
 
+  const isDisplayingVideo = !isVideoOff && !!stream && hasActiveVideoTrack && (isLocal || hasRenderedFrame);
+
   return (
     <div
       onClick={isAudioRestricted && !isLocal ? handleUnmute : undefined}
@@ -148,12 +163,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         muted={shouldMuteAudio || isAudioRestricted}
         onLoadedMetadata={() => {
           videoRef.current?.play().catch(() => {});
+          if (videoRef.current && videoRef.current.videoWidth > 0) {
+            setHasRenderedFrame(true);
+          }
+        }}
+        onLoadedData={() => {
+          if (videoRef.current && videoRef.current.videoWidth > 0) {
+            setHasRenderedFrame(true);
+          }
+        }}
+        onPlaying={() => {
+          setHasRenderedFrame(true);
         }}
         onCanPlay={() => {
           videoRef.current?.play().catch(() => {});
         }}
-        className={`w-full h-full transition-opacity duration-200 ${
-          isVideoOff || !stream || !hasActiveVideoTrack ? 'opacity-0 pointer-events-none absolute inset-0' : 'opacity-100 block'
+        className={`w-full h-full transition-opacity duration-300 ${
+          isDisplayingVideo ? 'opacity-100 block' : 'opacity-0 pointer-events-none absolute inset-0'
         } ${
           isScreenShare
             ? 'object-contain bg-black'
@@ -161,8 +187,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         }`}
       />
 
-      {/* Camera Off or Waiting Placeholder Overlay */}
-      {(!stream || isVideoOff || !hasActiveVideoTrack) && (
+      {/* Camera Off or Waiting Placeholder Overlay - Never a black void */}
+      {!isDisplayingVideo && (
         <div className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center bg-[#070b14]/95 text-slate-400 p-4 text-center select-none">
           <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-700/80 flex items-center justify-center mb-2 shadow-inner">
             {isVideoOff ? (
@@ -178,7 +204,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
               ? (isLocal ? 'Starting camera...' : 'Connecting to stranger...')
               : !hasActiveVideoTrack
               ? (isLocal ? 'Enabling video stream...' : 'Waiting for video stream...')
-              : 'Connecting...'}
+              : (isLocal ? 'Starting camera...' : 'Connecting stranger\'s video...')}
           </span>
         </div>
       )}

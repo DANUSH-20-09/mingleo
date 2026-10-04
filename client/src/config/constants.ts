@@ -41,7 +41,7 @@ export const ICE_SERVERS: RTCConfiguration = {
       credential: 'openrelayproject',
     },
   ],
-  iceCandidatePoolSize: 2,
+  iceCandidatePoolSize: 0,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require',
 };
