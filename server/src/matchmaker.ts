@@ -170,7 +170,7 @@ export class Matchmaker {
       if (!sessionA || sessionA.state !== 'in_queue') continue;
 
       const waitA = now - userA.joinedAt;
-      const isAEligible = userA.language === 'global' || waitA > 6000;
+      const isAEligible = userA.language === 'global' || waitA > 2500;
 
       for (let j = i + 1; j < allEntries.length; j++) {
         const userB = allEntries[j];
@@ -178,12 +178,12 @@ export class Matchmaker {
         if (!sessionB || sessionB.state !== 'in_queue') continue;
 
         const waitB = now - userB.joinedAt;
-        const isBEligible = userB.language === 'global' || waitB > 6000;
+        const isBEligible = userB.language === 'global' || waitB > 2500;
 
-        // If neither is global and neither has waited > 6s, allow them to wait for same-language match
+        // If neither is global and neither has waited > 2.5s, allow brief window for same-language match
         if (!isAEligible && !isBEligible) continue;
 
-        if (userA.socketId === userB.socketId || userA.guestId === userB.guestId) continue;
+        if (userA.socketId === userB.socketId) continue;
         if (store.isBlocked(userA.socketId, userB.socketId)) continue;
 
         // Remove both from queue
@@ -239,7 +239,7 @@ export class Matchmaker {
         if (!sessionB) continue;
 
         // Check 1: Must be different sockets
-        if (userA.socketId === userB.socketId || userA.guestId === userB.guestId) continue;
+        if (userA.socketId === userB.socketId) continue;
 
         // Check 2: Blocked check
         if (store.isBlocked(userA.socketId, userB.socketId)) continue;
@@ -264,7 +264,6 @@ export class Matchmaker {
           const userB = validEntries[j];
           if (
             userA.socketId !== userB.socketId &&
-            userA.guestId !== userB.guestId &&
             userA.language === userB.language &&
             !store.isBlocked(userA.socketId, userB.socketId)
           ) {

@@ -52,10 +52,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { setWarning, blockUser } = useSafety();
 
   const [guestId] = useState<string>(() => {
-    let id = localStorage.getItem(GUEST_ID_KEY);
+    let id = sessionStorage.getItem(GUEST_ID_KEY);
     if (!id) {
-      id = `guest_${Math.random().toString(36).substring(2, 9)}`;
-      localStorage.setItem(GUEST_ID_KEY, id);
+      id = `guest_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+      sessionStorage.setItem(GUEST_ID_KEY, id);
     }
     return id;
   });

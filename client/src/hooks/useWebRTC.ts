@@ -278,15 +278,30 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
-    // Add local tracks to peer connection
+    // Pre-declare bidirectional audio and video transceivers so SDP always contains active m-lines
+    try {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    } catch (e) {
+      console.warn('[WebRTC] Transceiver setup warning:', e);
+    }
+
+    // Attach local tracks immediately if available
     if (localStream) {
       localStream.getTracks().forEach(track => {
         try {
           if (track.kind === 'audio') {
             track.enabled = !isAudioMuted;
           }
-          pc.addTrack(track, localStream);
-          console.log(`[WebRTC] Added initial local ${track.kind} track (id: ${track.id}, enabled: ${track.enabled})`);
+          const senders = pc.getSenders();
+          const targetSender = senders.find(s => s.track && s.track.kind === track.kind) ||
+                               senders.find(s => !s.track);
+          if (targetSender) {
+            targetSender.replaceTrack(track).catch(() => {});
+          } else {
+            pc.addTrack(track, localStream);
+          }
+          console.log(`[WebRTC] Attached local ${track.kind} track (id: ${track.id})`);
         } catch (e) {
           console.warn('[WebRTC] Error adding local track:', e);
         }
@@ -297,21 +312,32 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
       event.track.enabled = true;
-      if (event.streams && event.streams[0]) {
-        event.streams[0].getAudioTracks().forEach(t => { t.enabled = true; });
-        setRemoteStream(event.streams[0]);
-      } else {
-        setRemoteStream(prev => {
-          if (prev) {
-            if (!prev.getTracks().some(t => t.id === event.track.id)) {
-              prev.addTrack(event.track);
-            }
-            prev.getAudioTracks().forEach(t => { t.enabled = true; });
-            return new MediaStream(prev.getTracks());
-          }
-          return new MediaStream([event.track]);
-        });
-      }
+
+      const refreshRemoteStream = () => {
+        if (event.streams && event.streams[0]) {
+          const stream = event.streams[0];
+          stream.getAudioTracks().forEach(t => { t.enabled = true; });
+          stream.getVideoTracks().forEach(t => { t.enabled = true; });
+          // Always create a new MediaStream instance so React state change triggers component re-renders
+          setRemoteStream(new MediaStream(stream.getTracks()));
+        } else {
+          setRemoteStream(prev => {
+            const tracks = prev ? [...prev.getTracks(), event.track] : [event.track];
+            const unique = Array.from(new Map(tracks.map(t => [t.id, t])).values());
+            unique.forEach(t => { t.enabled = true; });
+            return new MediaStream(unique);
+          });
+        }
+      };
+
+      refreshRemoteStream();
+
+      // Handle track unmuting (when first RTP packets arrive on mobile devices)
+      event.track.onunmute = () => {
+        console.log(`[WebRTC] Remote ${event.track.kind} track unmuted (media packets flowing)`);
+        refreshRemoteStream();
+      };
+
       setConnectionStatus('connected');
     };
 
@@ -510,9 +536,11 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
   // Synchronize local tracks to peer connection if localStream changes during an active call
   useEffect(() => {
     const pc = peerConnectionRef.current;
-    if (!pc || !localStream || !matchData || matchData.isSimulated) return;
+    if (!pc || !localStream || !matchData) return;
 
     const senders = pc.getSenders();
+    let needsRenegotiation = false;
+
     localStream.getTracks().forEach(track => {
       if (track.kind === 'audio') {
         track.enabled = !isAudioMuted;
@@ -526,15 +554,35 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
           });
         }
       } else {
-        try {
-          console.log(`[WebRTC] Adding new ${track.kind} track to peer connection`);
-          pc.addTrack(track, localStream);
-        } catch (err) {
-          console.warn(`[WebRTC] Error adding ${track.kind} track:`, err);
+        const unusedSender = senders.find(s => !s.track);
+        if (unusedSender) {
+          unusedSender.replaceTrack(track).catch(() => {});
+        } else {
+          try {
+            console.log(`[WebRTC] Adding new ${track.kind} track to peer connection`);
+            pc.addTrack(track, localStream);
+            needsRenegotiation = true;
+          } catch (err) {
+            console.warn(`[WebRTC] Error adding ${track.kind} track:`, err);
+          }
         }
       }
     });
-  }, [localStream, matchData, isAudioMuted]);
+
+    if (needsRenegotiation && socket && pc.signalingState === 'stable') {
+      pc.createOffer().then(async (offer) => {
+        await pc.setLocalDescription(offer);
+        socket.emit('signal_offer', {
+          roomId: matchData.roomId,
+          to: matchData.peerSocketId,
+          sdp: offer
+        });
+        console.log('[WebRTC] Sent dynamic track renegotiation offer');
+      }).catch(err => {
+        console.warn('[WebRTC] Dynamic track renegotiation error:', err);
+      });
+    }
+  }, [localStream, matchData, isAudioMuted, socket]);
 
   // Real-time WebRTC Performance & Voice Communication Statistics (getStats)
   useEffect(() => {

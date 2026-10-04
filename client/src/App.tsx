@@ -101,10 +101,26 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     const playPromise = audioEl.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn('Audio autoplay blocked or waiting for user interaction:', err);
+        console.warn('Audio autoplay waiting for user interaction:', err);
       });
     }
   }, [remoteStream, isRemoteAudioMuted]);
+
+  // Global user interaction listener to unblock audio autoplay on mobile Android/iOS
+  useEffect(() => {
+    const unlockAudio = () => {
+      const audioEl = remoteAudioRef.current;
+      if (audioEl && audioEl.srcObject && audioEl.paused) {
+        audioEl.play().catch(() => {});
+      }
+    };
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
 
   // Handle Speech Safety recognition during active calls (disabled on mobile to prevent Android/iOS mic contention)
   useEffect(() => {
@@ -170,23 +186,23 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
   };
 
   const handleStartVideoChat = async () => {
-    if (!localStream) {
-      try {
+    try {
+      if (!localStream) {
         await initializeMedia();
-      } catch (err) {
-        console.error('Failed to initialize media:', err);
       }
+    } catch (err) {
+      console.warn('Initial camera setup note:', err);
     }
     startSearch(false);
   };
 
   const handleNextMatch = async () => {
-    if (!localStream) {
-      try {
+    try {
+      if (!localStream) {
         await initializeMedia();
-      } catch (err) {
-        console.error('Failed to initialize media:', err);
       }
+    } catch (err) {
+      console.warn('Initial camera setup note:', err);
     }
     nextMatch(true);
   };

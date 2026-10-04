@@ -4,7 +4,7 @@ import { LanguageInfo, VideoQualityPreset } from '../types';
 export const APP_NAME = 'Mingleo';
 export const APP_TAGLINE = 'Random Video Chat • One click. A new connection.';
 
-// WebRTC ICE Configuration (STUN & optional TURN servers)
+// WebRTC ICE Configuration (STUN & TURN relay servers for Android mobile NAT traversal)
 export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -12,7 +12,18 @@ export const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    // Public OpenRelay TURN servers (bypasses carrier CGNAT on 4G/5G mobile Android devices)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
   iceCandidatePoolSize: 10,
 };

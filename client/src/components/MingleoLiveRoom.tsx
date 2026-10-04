@@ -408,11 +408,11 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-[420px] md:min-h-[520px] lg:min-h-[580px]">
             {/* Left Box: Stranger Feed (or Screen Share) */}
             <div className="relative rounded-2xl overflow-hidden bg-[#050811] border border-slate-800 shadow-2xl flex items-center justify-center group aspect-[4/3] md:aspect-auto">
-              {isConnected && remoteStream ? (
+              {isConnected ? (
                 <VideoPlayer
                   stream={remoteStream}
                   label=""
-                  muteVideoElement={true}
+                  muteVideoElement={false}
                   className="w-full h-full object-cover"
                 />
               ) : isSearching ? (

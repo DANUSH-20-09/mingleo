@@ -41,27 +41,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       return;
     }
 
-    if (videoEl.srcObject !== stream) {
-      videoEl.srcObject = stream;
-    }
+    // Always ensure current stream is assigned
+    videoEl.srcObject = stream;
     videoEl.autoplay = true;
     videoEl.playsInline = true;
     videoEl.muted = shouldMuteVideo;
 
-    // Single-attempt play with silent failure handling
-    const playPromise = videoEl.play();
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          if (!shouldMuteVideo) {
-            console.warn('[VideoPlayer] Unmuted playback blocked by autoplay policy:', err.message);
-            setAutoplayBlocked(true);
-          }
-        });
-    }
+    const tryPlay = () => {
+      const playPromise = videoEl.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setAutoplayBlocked(false);
+          })
+          .catch((err) => {
+            if (!shouldMuteVideo) {
+              console.warn('[VideoPlayer] Unmuted playback blocked by autoplay policy:', err.message);
+              setAutoplayBlocked(true);
+            }
+          });
+      }
+    };
+
+    tryPlay();
+
+    const handleTrackChange = () => {
+      if (videoEl && stream) {
+        videoEl.srcObject = stream;
+        tryPlay();
+      }
+    };
+
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+    };
   }, [stream, shouldMuteVideo]);
 
   const handleEnableAudio = () => {
@@ -81,16 +98,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
 
   return (
     <div
-      className={`relative w-full h-full bg-dark-950 overflow-hidden rounded-2xl border border-slate-800/80 shadow-glass transition-colors ${className}`}
+      className={`relative w-full h-full bg-slate-950 overflow-hidden rounded-2xl border border-slate-800/80 shadow-glass transition-colors ${className}`}
     >
-      {/* Active Video Stream Element - always mounted to prevent ref destruction and re-negotiation lag */}
+      {/* Active Video Stream Element - always mounted and visible to browser compositor to prevent Android decoder pauses */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={shouldMuteVideo}
-        className={`w-full h-full ${
-          isVideoOff || !stream ? 'hidden' : 'block'
+        onLoadedMetadata={() => {
+          videoRef.current?.play().catch(() => {});
+        }}
+        onCanPlay={() => {
+          videoRef.current?.play().catch(() => {});
+        }}
+        onPause={() => {
+          if (stream && !isVideoOff) {
+            videoRef.current?.play().catch(() => {});
+          }
+        }}
+        className={`w-full h-full transition-opacity duration-200 ${
+          isVideoOff || !stream ? 'opacity-0 pointer-events-none absolute inset-0' : 'opacity-100 block'
         } ${
           isScreenShare
             ? 'object-contain bg-black'
@@ -98,14 +126,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         }`}
       />
 
-      {/* Camera Off or Waiting Placeholder */}
+      {/* Camera Off or Waiting Placeholder Overlay */}
       {(!stream || isVideoOff) && (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-dark-900/90 text-slate-400 p-4 text-center select-none">
-          <div className="w-16 h-16 rounded-full bg-dark-850 border border-slate-700/80 flex items-center justify-center mb-2 shadow-inner">
+        <div className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center bg-[#070b14]/95 text-slate-400 p-4 text-center select-none">
+          <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-700/80 flex items-center justify-center mb-2 shadow-inner">
             {isVideoOff ? (
               <VideoOff className="w-7 h-7 text-slate-500" />
             ) : (
-              <User className="w-7 h-7 text-slate-400" />
+              <User className="w-7 h-7 text-cyan-400 animate-pulse" />
             )}
           </div>
           <span className="text-xs font-semibold text-slate-300">
