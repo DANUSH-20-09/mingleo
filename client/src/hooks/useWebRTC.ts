@@ -277,34 +277,30 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
-    // Pre-declare bidirectional audio and video transceivers so SDP always contains active m-lines
-    try {
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-      pc.addTransceiver('video', { direction: 'sendrecv' });
-    } catch (e) {
-      console.warn('[WebRTC] Transceiver setup warning:', e);
-    }
-
-    // Attach local tracks immediately if available
-    if (localStream) {
+    // Attach local tracks with stream association, or prepare receive-only transceivers
+    if (localStream && localStream.getTracks().length > 0) {
       localStream.getTracks().forEach(track => {
         try {
           if (track.kind === 'audio') {
             track.enabled = !isAudioMuted;
           }
-          const senders = pc.getSenders();
-          const targetSender = senders.find(s => s.track && s.track.kind === track.kind) ||
-                               senders.find(s => !s.track);
-          if (targetSender) {
-            targetSender.replaceTrack(track).catch(() => {});
-          } else {
-            pc.addTrack(track, localStream);
+          if (track.kind === 'video') {
+            track.enabled = !isVideoDisabled;
           }
-          console.log(`[WebRTC] Attached local ${track.kind} track (id: ${track.id})`);
+          pc.addTrack(track, localStream);
+          console.log(`[WebRTC] Attached local ${track.kind} track (id: ${track.id}) with stream`);
         } catch (e) {
           console.warn('[WebRTC] Error adding local track:', e);
         }
       });
+    } else {
+      // If user does not have a local camera/mic yet, declare receive-only transceivers
+      try {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.addTransceiver('video', { direction: 'recvonly' });
+      } catch (e) {
+        console.warn('[WebRTC] Transceiver setup warning:', e);
+      }
     }
 
     // Handle remote track reception
@@ -433,7 +429,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
           const cand = iceCandidatesQueue.current.shift();
           if (cand) {
             try {
-              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+              await peerConnectionRef.current.addIceCandidate(cand);
             } catch (candErr) {
               console.warn('[WebRTC] Buffered candidate note:', candErr);
             }
@@ -467,7 +463,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
           const cand = iceCandidatesQueue.current.shift();
           if (cand) {
             try {
-              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+              await peerConnectionRef.current.addIceCandidate(cand);
             } catch (candErr) {
               console.warn('[WebRTC] Buffered candidate note:', candErr);
             }
@@ -479,15 +475,15 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     };
 
     const handleSignalIce = async (data: { roomId: string; from: string; candidate: RTCIceCandidateInit }) => {
-      if (!peerConnectionRef.current || data.roomId !== matchData.roomId) return;
+      if (!peerConnectionRef.current || data.roomId !== matchData.roomId || !data.candidate) return;
       try {
         if (peerConnectionRef.current.remoteDescription && peerConnectionRef.current.remoteDescription.type) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+          await peerConnectionRef.current.addIceCandidate(data.candidate);
         } else {
           iceCandidatesQueue.current.push(data.candidate);
         }
       } catch (err) {
-        console.error('[WebRTC] Error adding ICE candidate:', err);
+        console.warn('[WebRTC] Error adding ICE candidate:', err);
       }
     };
 

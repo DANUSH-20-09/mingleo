@@ -29,6 +29,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const [hasActiveVideoTrack, setHasActiveVideoTrack] = useState<boolean>(() => {
+    return !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+  });
 
   const shouldMuteVideo = isLocal || isMuted || muteVideoElement;
 
@@ -38,8 +41,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
 
     if (!stream) {
       videoEl.srcObject = null;
+      setHasActiveVideoTrack(false);
       return;
     }
+
+    const checkVideo = () => {
+      const hasLiveVideo = stream.getVideoTracks().some(t => t.readyState === 'live');
+      setHasActiveVideoTrack(hasLiveVideo);
+    };
+
+    checkVideo();
 
     // Always ensure current stream is assigned
     videoEl.srcObject = stream;
@@ -68,6 +79,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     const handleTrackChange = () => {
       if (videoEl && stream) {
         videoEl.srcObject = stream;
+        checkVideo();
         tryPlay();
       }
     };
@@ -75,9 +87,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     stream.addEventListener('addtrack', handleTrackChange);
     stream.addEventListener('removetrack', handleTrackChange);
 
+    // Listen to video track mute/unmute
+    stream.getVideoTracks().forEach(t => {
+      t.addEventListener('unmute', checkVideo);
+      t.addEventListener('mute', checkVideo);
+    });
+
     return () => {
       stream.removeEventListener('addtrack', handleTrackChange);
       stream.removeEventListener('removetrack', handleTrackChange);
+      stream.getVideoTracks().forEach(t => {
+        t.removeEventListener('unmute', checkVideo);
+        t.removeEventListener('mute', checkVideo);
+      });
     };
   }, [stream, shouldMuteVideo]);
 
@@ -118,7 +140,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
           }
         }}
         className={`w-full h-full transition-opacity duration-200 ${
-          isVideoOff || !stream ? 'opacity-0 pointer-events-none absolute inset-0' : 'opacity-100 block'
+          isVideoOff || !stream || !hasActiveVideoTrack ? 'opacity-0 pointer-events-none absolute inset-0' : 'opacity-100 block'
         } ${
           isScreenShare
             ? 'object-contain bg-black'
@@ -127,7 +149,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       />
 
       {/* Camera Off or Waiting Placeholder Overlay */}
-      {(!stream || isVideoOff) && (
+      {(!stream || isVideoOff || !hasActiveVideoTrack) && (
         <div className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center bg-[#070b14]/95 text-slate-400 p-4 text-center select-none">
           <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-700/80 flex items-center justify-center mb-2 shadow-inner">
             {isVideoOff ? (
@@ -137,7 +159,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
             )}
           </div>
           <span className="text-xs font-semibold text-slate-300">
-            {isVideoOff ? 'Camera is turned off' : 'Waiting for video stream...'}
+            {isVideoOff
+              ? 'Camera is turned off'
+              : !stream
+              ? (isLocal ? 'Starting camera...' : 'Connecting to stranger...')
+              : !hasActiveVideoTrack
+              ? (isLocal ? 'Enabling video stream...' : 'Waiting for video stream...')
+              : 'Connecting...'}
           </span>
         </div>
       )}

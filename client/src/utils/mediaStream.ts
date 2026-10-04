@@ -106,13 +106,13 @@ export async function requestUserMedia(
     throw new Error(support.error || 'Media devices not supported.');
   }
 
-  const quality = VIDEO_QUALITY_PRESETS[settings.videoQuality] || VIDEO_QUALITY_PRESETS['720p'];
+  const quality = VIDEO_QUALITY_PRESETS[settings.videoQuality] || VIDEO_QUALITY_PRESETS['480p'];
 
-  // 1. Primary constraint config
+  // 1. Primary constraint config: use IDEAL constraints only (never rigid min/max that cause OverconstrainedError or NotFoundError)
   const videoConstraints: MediaTrackConstraints = {
-    width: { ideal: quality.width, min: 320 },
-    height: { ideal: quality.height, min: 240 },
-    frameRate: { ideal: quality.frameRate, min: 15 },
+    width: { ideal: quality.width },
+    height: { ideal: quality.height },
+    frameRate: { ideal: quality.frameRate },
   };
 
   if (settings.selectedCameraId) {
@@ -121,14 +121,7 @@ export async function requestUserMedia(
     videoConstraints.facingMode = { ideal: facingMode };
   }
 
-  const baseAudioProcessing: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  };
-
   const audioConstraints: MediaTrackConstraints = {
-    ...baseAudioProcessing,
     echoCancellation: settings.echoCancellation ?? true,
     noiseSuppression: settings.noiseSuppression ?? true,
     autoGainControl: settings.autoGainControl ?? true,
@@ -138,72 +131,57 @@ export async function requestUserMedia(
     audioConstraints.deviceId = { ideal: settings.selectedMicrophoneId };
   }
 
-  const verifyAndLogTrackSettings = (stream: MediaStream) => {
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack && typeof audioTrack.getSettings === 'function') {
-      const s = audioTrack.getSettings();
-      console.log('[MediaStream] Active audio track settings:', {
-        echoCancellation: s.echoCancellation,
-        noiseSuppression: s.noiseSuppression,
-        autoGainControl: s.autoGainControl,
-        sampleRate: s.sampleRate,
-        channelCount: s.channelCount,
-      });
-    }
-    const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack && typeof videoTrack.getSettings === 'function') {
-      const vs = videoTrack.getSettings();
-      console.log('[MediaStream] Active video track settings:', {
-        width: vs.width,
-        height: vs.height,
-        frameRate: vs.frameRate,
-        facingMode: vs.facingMode,
-      });
-    }
-  };
-
+  // Attempt 1: Configured ideal constraints
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: videoConstraints,
       audio: audioConstraints
     });
-    verifyAndLogTrackSettings(stream);
     return stream;
   } catch (initialErr: any) {
     console.warn('[MediaStream] Initial constraint request failed, trying relaxed fallback:', initialErr);
 
-    // If permission was denied by user, do not retry - report permission error
     if (initialErr.name === 'NotAllowedError' || initialErr.name === 'PermissionDeniedError') {
       throw initialErr;
     }
 
-    // 2. Relaxed fallback: standard video and audio with browser audio processing enabled
+    // Attempt 2: Relaxed dual-track without specific device IDs or resolutions
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: baseAudioProcessing
+        video: { facingMode: { ideal: facingMode } },
+        audio: true
       });
-      verifyAndLogTrackSettings(stream);
       return stream;
-    } catch (basicErr: any) {
-      console.warn('[MediaStream] Basic dual-track getUserMedia failed, attempting single-track fallback:', basicErr);
+    } catch (dualErr: any) {
+      console.warn('[MediaStream] Relaxed dual-track failed, trying basic video & audio:', dualErr);
 
-      if (basicErr.name === 'NotAllowedError' || basicErr.name === 'PermissionDeniedError') {
-        throw basicErr;
+      if (dualErr.name === 'NotAllowedError' || dualErr.name === 'PermissionDeniedError') {
+        throw dualErr;
       }
 
-      // 3. Single-track fallback: if machine has no microphone or no webcam, try the one that exists
+      // Attempt 3: Pure boolean constraints (works on all mobile webviews & laptops)
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        verifyAndLogTrackSettings(stream);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
         return stream;
-      } catch (videoOnlyErr) {
+      } catch (boolErr: any) {
+        if (boolErr.name === 'NotAllowedError' || boolErr.name === 'PermissionDeniedError') {
+          throw boolErr;
+        }
+
+        // Attempt 4: Single track fallback (camera without microphone, or microphone without camera)
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: baseAudioProcessing });
-          verifyAndLogTrackSettings(stream);
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           return stream;
         } catch {
-          throw initialErr;
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            return stream;
+          } catch {
+            throw initialErr;
+          }
         }
       }
     }

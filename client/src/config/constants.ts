@@ -25,7 +25,7 @@ export const ICE_SERVERS: RTCConfiguration = {
       credential: 'openrelayproject'
     }
   ],
-  iceCandidatePoolSize: 10,
+  iceCandidatePoolSize: 0,
 };
 
 // Supported Languages with Native Scripts & Info

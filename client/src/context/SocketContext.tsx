@@ -105,10 +105,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   useEffect(() => {
-    // Determine backend URL (custom configured URL, direct port 5001 in dev, or origin in prod)
-    const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    // Determine backend URL (custom configured URL, direct port 5001 in dev/local network, or origin in prod)
+    const isLocal = window.location.hostname === 'localhost' ||
+                    window.location.hostname === '127.0.0.1' ||
+                    window.location.hostname.startsWith('192.168.') ||
+                    window.location.hostname.startsWith('10.') ||
+                    window.location.hostname.endsWith('.local');
+
     const serverUrl = serverUrlState || (import.meta as any).env?.VITE_SERVER_URL ||
-      (isLocalDev && window.location.port === '5173'
+      (isLocal && (window.location.port === '5173' || window.location.port === '4173')
         ? `http://${window.location.hostname}:5001`
         : window.location.origin);
 
@@ -195,6 +200,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('[Socket] Partner disconnected:', data.reason);
       SoundEffects.playSkipSound();
       setMatchData(null);
+      // Seamless Omegle-style continuous matching: automatically find next stranger!
+      setIsSearching(true);
+      if (socketInstance.connected) {
+        socketInstance.emit('join_queue', {
+          guestId,
+          username,
+          language: selectedLanguage
+        });
+      }
     });
 
     socketInstance.on('chat_message', (msg: ChatMessage) => {
@@ -219,7 +233,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     // Fetch initial server stats
-    const apiBase = (isLocalDev && window.location.port === '5173')
+    const apiBase = (isLocal && (window.location.port === '5173' || window.location.port === '4173'))
       ? `http://${window.location.hostname}:5001`
       : (serverUrlState || '');
     if (apiBase) {
@@ -294,6 +308,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsSearching(false);
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('end_call', { roomId });
+      socketRef.current.emit('leave_queue');
     }
   };
 
