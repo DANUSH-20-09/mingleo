@@ -103,10 +103,11 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     }
   }, [remoteStream, isRemoteAudioMuted]);
 
-  // Handle Speech Safety recognition during active calls
+  // Handle Speech Safety recognition during active calls (disabled on mobile to prevent Android/iOS mic contention)
   useEffect(() => {
     const isCallActive = !!matchData;
-    if (isCallActive && settings.speechSafetyConsent && speechSafety.isSupported()) {
+    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isCallActive && settings.speechSafetyConsent && speechSafety.isSupported() && !isMobile) {
       speechSafety.start((transcript) => {
         if (socket && transcript.trim()) {
           socket.emit('transcription_check', {

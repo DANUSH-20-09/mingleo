@@ -253,115 +253,213 @@ export function stopMediaStream(stream: MediaStream | null): void {
 /**
  * Creates a synthetic animated media stream for Dev Simulation mode
  */
-export function createSimulatedMediaStream(partnerName: string = 'Simulated Partner', language: string = 'Telugu'): MediaStream {
+export function createSimulatedMediaStream(_partnerName: string = 'Simulated Partner', _language: string = 'Telugu'): MediaStream {
   const canvas = document.createElement('canvas');
   canvas.width = 640;
   canvas.height = 480;
   const ctx = canvas.getContext('2d')!;
 
   let frame = 0;
-  const particles: { x: number; y: number; size: number; speed: number; hue: number }[] = [];
-  for (let i = 0; i < 30; i++) {
+  // Dynamic constellation particle field
+  interface Particle {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+    color: string;
+  }
+  const particles: Particle[] = [];
+  const palette = ['#06b6d4', '#8b5cf6', '#3b82f6', '#ec4899', '#10b981'];
+  for (let i = 0; i < 40; i++) {
     particles.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      size: Math.random() * 3 + 1,
-      speed: Math.random() * 1.5 + 0.5,
-      hue: Math.random() * 60 + 240 // Purple to Cyan
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: (Math.random() - 0.5) * 0.8,
+      size: Math.random() * 2.5 + 1,
+      color: palette[Math.floor(Math.random() * palette.length)]
     });
   }
 
   function draw() {
     frame++;
-    // Dark animated gradient background
-    const bgGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    bgGrad.addColorStop(0, '#0b0d17');
-    bgGrad.addColorStop(0.5, '#170f2c');
-    bgGrad.addColorStop(1, '#08162b');
-    ctx.fillStyle = bgGrad;
+    // 1. Deep space background with subtle radial glow
+    ctx.fillStyle = '#070b14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Floating particles
+    const bgRadial = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 40, canvas.width / 2, canvas.height / 2, 320);
+    bgRadial.addColorStop(0, 'rgba(30, 27, 75, 0.45)');
+    bgRadial.addColorStop(0.6, 'rgba(15, 23, 42, 0.6)');
+    bgRadial.addColorStop(1, 'rgba(7, 11, 20, 0.95)');
+    ctx.fillStyle = bgRadial;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Constellation particles & laser lines
     particles.forEach(p => {
-      p.y -= p.speed;
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
       if (p.y < 0) p.y = canvas.height;
-      ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, 0.6)`;
+      if (p.y > canvas.height) p.y = 0;
+
+      ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Central pulsing avatar orb
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2 - 20;
-    const pulse = Math.sin(frame * 0.05) * 8;
-    const radius = 65 + pulse;
+    // Draw connecting laser filaments
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 75) {
+          const alpha = (1 - dist / 75) * 0.25;
+          ctx.strokeStyle = `rgba(139, 92, 246, ${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
 
-    // Glowing outer ring
-    const glowGrad = ctx.createRadialGradient(centerX, centerY, radius * 0.7, centerX, centerY, radius * 1.4);
-    glowGrad.addColorStop(0, 'rgba(139, 92, 246, 0.8)');
-    glowGrad.addColorStop(0.5, 'rgba(6, 182, 212, 0.4)');
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2 - 15;
+
+    // 3. Expanding sonar energy rings
+    for (let r = 1; r <= 3; r++) {
+      const ringPulse = ((frame * 1.2 + r * 50) % 150);
+      const ringRadius = 60 + ringPulse;
+      const ringAlpha = Math.max(0, 1 - ringPulse / 150) * 0.35;
+      ctx.strokeStyle = r % 2 === 0 ? `rgba(6, 182, 212, ${ringAlpha})` : `rgba(168, 85, 247, ${ringAlpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 4. Central Holographic Avatar Orb
+    const corePulse = Math.sin(frame * 0.06) * 5;
+    const radius = 62 + corePulse;
+
+    // Outer glow aura
+    const glowGrad = ctx.createRadialGradient(centerX, centerY, radius * 0.7, centerX, centerY, radius * 1.5);
+    glowGrad.addColorStop(0, 'rgba(6, 182, 212, 0.6)');
+    glowGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.3)');
     glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = glowGrad;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius * 1.4, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, radius * 1.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Core circle
-    const coreGrad = ctx.createLinearGradient(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
-    coreGrad.addColorStop(0, '#8b5cf6');
-    coreGrad.addColorStop(1, '#06b6d4');
-    ctx.fillStyle = coreGrad;
+    // Orb body
+    const bodyGrad = ctx.createLinearGradient(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
+    bodyGrad.addColorStop(0, '#06b6d4');
+    bodyGrad.addColorStop(0.5, '#6366f1');
+    bodyGrad.addColorStop(1, '#a855f7');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Eyes
-    const eyeBlink = Math.sin(frame * 0.03) > 0.95;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
+    // Sleek inner border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-    if (eyeBlink) {
-      ctx.beginPath();
-      ctx.moveTo(centerX - 24, centerY - 10);
-      ctx.lineTo(centerX - 12, centerY - 10);
-      ctx.moveTo(centerX + 12, centerY - 10);
-      ctx.lineTo(centerX + 24, centerY - 10);
+    // 5. High-Tech Cyber Visor / Eyes
+    const scanOffset = Math.sin(frame * 0.08) * 12;
+    // Visor back plate
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.beginPath();
+    ctx.roundRect(centerX - 32, centerY - 14, 64, 18, 9);
+    ctx.fill();
+
+    // Laser visor glow
+    const laserGrad = ctx.createLinearGradient(centerX - 30, centerY, centerX + 30, centerY);
+    laserGrad.addColorStop(0, '#38bdf8');
+    laserGrad.addColorStop(0.5, '#ffffff');
+    laserGrad.addColorStop(1, '#38bdf8');
+    ctx.fillStyle = laserGrad;
+    ctx.beginPath();
+    ctx.roundRect(centerX - 24 + scanOffset * 0.5, centerY - 8, 20, 6, 3);
+    ctx.fill();
+
+    // 6. Responsive Waveform Mouth / Audio visualizer
+    const isSpeaking = Math.sin(frame * 0.1) > -0.2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (isSpeaking) {
+      const openH = Math.abs(Math.sin(frame * 0.15)) * 10 + 4;
+      ctx.ellipse(centerX, centerY + 20, 14, openH, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+      ctx.fill();
       ctx.stroke();
     } else {
-      ctx.fillStyle = '#ffffff';
+      ctx.arc(centerX, centerY + 18, 14, 0.2 * Math.PI, 0.8 * Math.PI, false);
+      ctx.stroke();
+    }
+
+    // 7. Dynamic Audio Equalizer Bars
+    const barCount = 11;
+    const barWidth = 4;
+    const barSpacing = 7;
+    const startX = centerX - ((barCount * (barWidth + barSpacing)) / 2);
+    for (let b = 0; b < barCount; b++) {
+      const distFromCenter = Math.abs(b - Math.floor(barCount / 2));
+      const mult = 1 - (distFromCenter / barCount) * 0.4;
+      const h = Math.abs(Math.sin(frame * 0.12 + b * 0.6)) * 26 * mult + 6;
+      const barGrad = ctx.createLinearGradient(0, centerY + radius + 15, 0, centerY + radius + 15 + h);
+      barGrad.addColorStop(0, '#06b6d4');
+      barGrad.addColorStop(1, '#a855f7');
+      ctx.fillStyle = barGrad;
       ctx.beginPath();
-      ctx.arc(centerX - 18, centerY - 12, 5, 0, Math.PI * 2);
-      ctx.arc(centerX + 18, centerY - 12, 5, 0, Math.PI * 2);
+      ctx.roundRect(startX + b * (barWidth + barSpacing), centerY + radius + 25 - (h / 2), barWidth, h, 2);
       ctx.fill();
     }
 
-    // Smile
+    // 8. Cyber HUD Elements (Corner frames & status)
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
+    ctx.lineWidth = 1.5;
+    // Top-left bracket
     ctx.beginPath();
-    ctx.arc(centerX, centerY + 8, 16, 0.2 * Math.PI, 0.8 * Math.PI, false);
+    ctx.moveTo(25, 40);
+    ctx.lineTo(25, 25);
+    ctx.lineTo(40, 25);
+    ctx.stroke();
+    // Top-right bracket
+    ctx.beginPath();
+    ctx.moveTo(canvas.width - 40, 25);
+    ctx.lineTo(canvas.width - 25, 25);
+    ctx.lineTo(canvas.width - 25, 40);
     ctx.stroke();
 
-    // Soundwave bars below avatar
-    const barCount = 7;
-    const barWidth = 6;
-    const spacing = 8;
-    const startX = centerX - ((barCount * (barWidth + spacing)) / 2);
-    for (let b = 0; b < barCount; b++) {
-      const h = Math.abs(Math.sin(frame * 0.08 + b * 0.5)) * 26 + 6;
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(startX + b * (barWidth + spacing), centerY + radius + 25 - (h / 2), barWidth, h);
-    }
+    // Top-center HUD status pill
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.beginPath();
+    ctx.roundRect(centerX - 65, 20, 130, 22, 11);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
+    ctx.stroke();
 
-    // Text label
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px sans-serif';
+    ctx.fillStyle = '#34d399';
+    ctx.beginPath();
+    ctx.arc(centerX - 45, 31, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(partnerName, centerX, canvas.height - 40);
+    ctx.fillText('AI SIMULATION', centerX + 8, 35);
 
-    ctx.fillStyle = '#a855f7';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`[Simulated Partner • ${language.toUpperCase()}]`, centerX, canvas.height - 20);
+    // Note: Canvas bottom area is deliberately left empty of text so DOM watermarks render cleanly!
 
     requestAnimationFrame(draw);
   }

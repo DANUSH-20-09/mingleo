@@ -14,7 +14,9 @@ import {
   Radio,
   Settings,
   ShieldCheck,
-  Info
+  Info,
+  PhoneOff,
+  SkipForward
 } from 'lucide-react';
 import { VideoPlayer } from './VideoPlayer';
 import { MingleoLogo } from './MingleoLogo';
@@ -92,10 +94,8 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   onOpenAbout,
   isSocketConnected = true,
 }) => {
-  // Disconnect button state: 'idle' | 'really'
-  const [disconnectStage, setDisconnectStage] = useState<'idle' | 'really'>('idle');
   const [inputText, setInputText] = useState<string>('');
-  const [autoReroll, setAutoReroll] = useState<boolean>(false);
+  const [autoReroll, setAutoReroll] = useState<boolean>(true);
   const [isLangOpen, setIsLangOpen] = useState<boolean>(false);
   const [hasDisconnected, setHasDisconnected] = useState<boolean>(false);
   const [localWarning, setLocalWarning] = useState<string | null>(null);
@@ -117,7 +117,6 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   useEffect(() => {
     if (isConnected) {
       setHasDisconnected(false);
-      setDisconnectStage('idle');
     } else if (!isSearching && !isConnected) {
       setHasDisconnected(true);
       if (autoReroll) {
@@ -129,13 +128,13 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
     }
   }, [isConnected, isSearching, autoReroll, onNext]);
 
-  // Global Keyboard shortcuts: Esc for Stop/Really/New
+  // Global Keyboard shortcuts: Esc for Skip to next stranger, M for mute, V for cam
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        handleOrangeButtonClick();
+        handleSkipButtonClick();
       } else if (e.key === 'm' || e.key === 'M') {
         onToggleMic();
       } else if (e.key === 'v' || e.key === 'V') {
@@ -146,21 +145,10 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // Handle click on the orange action button
-  const handleOrangeButtonClick = () => {
-    if (!isConnected && !isSearching) {
-      setHasDisconnected(false);
-      onNext();
-    } else if (isSearching) {
-      onEndCall();
-    } else if (isConnected) {
-      if (disconnectStage === 'idle') {
-        setDisconnectStage('really');
-      } else {
-        setDisconnectStage('idle');
-        onNext();
-      }
-    }
+  // Handle click on the Skip button (Esc)
+  const handleSkipButtonClick = () => {
+    setHasDisconnected(false);
+    onNext();
   };
 
   // Close language dropdown on outside click
@@ -253,14 +241,12 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
     }
   };
 
-  // Compute text for Orange Button
-  const orangeButtonText = !isConnected && !isSearching
+  // Compute text for Skip Action Button
+  const skipButtonText = !isConnected && !isSearching
     ? 'New Chat'
     : isSearching
-    ? 'Stop Search'
-    : disconnectStage === 'really'
-    ? 'Really Disconnect?'
-    : 'Stop';
+    ? 'Skip'
+    : 'Skip';
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans select-none relative overflow-x-hidden">
@@ -280,12 +266,12 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
           <MingleoLogo size="md" />
           <div
             onClick={onOpenSettings}
-            className="hidden sm:flex items-center gap-2 border-l border-slate-700/80 pl-3 cursor-pointer group"
+            className="flex items-center gap-1.5 sm:gap-2 border-l border-slate-700/80 pl-2.5 sm:pl-3 cursor-pointer group"
             title="Click to manage server & audio/video settings"
           >
-            <span className={`w-2 h-2 rounded-full ${isSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`} />
-            <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors font-medium">
-              {isSocketConnected ? `Strict ${currentLangObj.name} queue active` : 'Demo / Standalone mode'}
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`} />
+            <span className="text-[11px] sm:text-xs text-slate-400 group-hover:text-slate-200 transition-colors font-medium">
+              {isSocketConnected ? `${currentLangObj.name} queue` : 'Demo Mode'}
             </span>
           </div>
         </div>
@@ -450,6 +436,18 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                 </span>
               </div>
 
+              {/* Demo Mode Badge if server is offline */}
+              {!isSocketConnected && isConnected && (
+                <button
+                  onClick={onOpenSettings}
+                  className="absolute top-3 left-3 z-20 px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold shadow-md transition-colors backdrop-blur-md cursor-pointer flex items-center gap-1.5"
+                  title="Click to configure live backend server for real strangers"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span>Demo Mode • Connect Real Strangers</span>
+                </button>
+              )}
+
               {/* Top-Right: Report/Block button */}
               {isConnected && (
                 <button
@@ -512,20 +510,30 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
 
           {/* 2. BOTTOM CONTROL BAR: ACTION BUTTON IS KEPT DOWN HERE! */}
           <div className="p-3 sm:p-3.5 rounded-2xl bg-[#0c1222]/90 border border-slate-800 shadow-xl flex flex-wrap items-center justify-between gap-3">
-            {/* The Prominent Orange Action Button (Kept Down!) */}
+            {/* Left: Call Control Actions (Exit Call + Skip [Esc]) */}
             <div className="flex items-center gap-2">
+              {/* Exit Button: Cleanly stops/exits the video call and returns to lobby */}
               <button
-                onClick={handleOrangeButtonClick}
-                className={`px-6 py-2.5 rounded-xl font-black text-sm flex items-center gap-2.5 shadow-lg transition-all active:scale-95 cursor-pointer select-none ${
-                  disconnectStage === 'really'
-                    ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-rose-600/30'
-                    : isSearching
-                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-amber-600/30'
+                onClick={onEndCall}
+                className="px-3.5 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-100 border border-rose-500/40 hover:border-rose-400/60 shadow-md active:scale-95 transition-all cursor-pointer"
+                title="Stop and Exit the Video Call"
+              >
+                <PhoneOff className="w-4 h-4 text-rose-400" />
+                <span>Exit Call</span>
+              </button>
+
+              {/* The Prominent Orange Skip Action Button (Keyboard shortcut: Esc) */}
+              <button
+                onClick={handleSkipButtonClick}
+                className={`px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer select-none ${
+                  isSearching
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-amber-600/30 animate-pulse'
                     : 'bg-gradient-to-r from-[#ff7a00] to-[#ff9e00] hover:from-[#ff8800] hover:to-[#ffa81a] text-white shadow-orange-500/25'
                 }`}
-                title="Press Esc on keyboard anytime"
+                title="Skip to next stranger (Press Esc)"
               >
-                <span>{orangeButtonText}</span>
+                <SkipForward className="w-4 h-4 text-white" />
+                <span>{skipButtonText}</span>
                 <span className="px-1.5 py-0.5 rounded bg-black/25 text-[10px] font-mono font-bold text-white/90">
                   Esc
                 </span>

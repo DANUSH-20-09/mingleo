@@ -19,7 +19,7 @@ const Root: React.FC = () => {
     autoGainControl: true,
     mirrorSelfVideo: true,
     soundEffectsEnabled: true,
-    speechSafetyConsent: true,
+    speechSafetyConsent: false,
     themeAccent: 'purple'
   });
 
