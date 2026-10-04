@@ -41,6 +41,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'devices' | 'audio_video' | 'language' | 'safety' | 'server'>('devices');
   const [inputUrl, setInputUrl] = useState<string>(serverUrl);
 
+  const [turnUrl, setTurnUrl] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('mingleo_turn_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        return typeof first?.urls === 'string' ? first.urls : (first?.urls?.[0] || '');
+      }
+    } catch {}
+    return '';
+  });
+  const [turnUsername, setTurnUsername] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('mingleo_turn_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        return first?.username || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [turnPassword, setTurnPassword] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('mingleo_turn_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const first = Array.isArray(parsed) ? parsed[0] : parsed;
+        return first?.credential || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [turnSavedStatus, setTurnSavedStatus] = useState<string>('');
+
+  const handleSaveTurn = () => {
+    if (turnUrl.trim() && turnUsername.trim() && turnPassword.trim()) {
+      const config = [{
+        urls: [turnUrl.trim(), `${turnUrl.trim()}?transport=tcp`],
+        username: turnUsername.trim(),
+        credential: turnPassword.trim(),
+      }];
+      localStorage.setItem('mingleo_turn_config', JSON.stringify(config));
+      setTurnSavedStatus('TURN Relay saved! Will be used for all calls.');
+    } else {
+      localStorage.removeItem('mingleo_turn_config');
+      setTurnSavedStatus('TURN cleared. Using Google & Cloudflare STUN.');
+    }
+    setTimeout(() => setTurnSavedStatus(''), 4000);
+  };
+
   useEffect(() => {
     setInputUrl(serverUrl);
   }, [serverUrl]);
@@ -354,6 +405,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-[11px] text-slate-400">
                   Leave blank to use default (local port 5001 or VITE_SERVER_URL).
                 </p>
+              </div>
+
+              {/* WebRTC TURN Relay Configuration (For 100% Mobile 4G/5G Cellular <-> Laptop NAT Traversal) */}
+              <div className="space-y-2 pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-brand-purple" />
+                    <span>WebRTC TURN Relay (Mobile Cellular & NAT Traversal)</span>
+                  </label>
+                  {turnSavedStatus && (
+                    <span className="text-[10px] text-emerald-400 font-bold animate-pulse">{turnSavedStatus}</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  By default, Google & Cloudflare STUN connect devices on WiFi. For cellular (4G/5G) mobile connections behind Symmetric NAT, add free TURN credentials from <a href="https://openrelayproject.org" target="_blank" rel="noreferrer" className="text-cyan-400 underline">OpenRelay</a> or <a href="https://metered.ca" target="_blank" rel="noreferrer" className="text-cyan-400 underline">Metered.ca</a>.
+                </p>
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={turnUrl}
+                    onChange={(e) => setTurnUrl(e.target.value)}
+                    placeholder="TURN URL (e.g., turn:openrelay.metered.ca:443)"
+                    className="w-full px-3 py-1.5 text-xs bg-dark-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-purple font-mono"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={turnUsername}
+                      onChange={(e) => setTurnUsername(e.target.value)}
+                      placeholder="Username"
+                      className="px-3 py-1.5 text-xs bg-dark-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-purple font-mono"
+                    />
+                    <input
+                      type="password"
+                      value={turnPassword}
+                      onChange={(e) => setTurnPassword(e.target.value)}
+                      placeholder="Password / Credential"
+                      className="px-3 py-1.5 text-xs bg-dark-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-purple font-mono"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      onClick={handleSaveTurn}
+                      className="px-3.5 py-1.5 bg-brand-purple hover:bg-brand-purple/80 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+                    >
+                      Save TURN Configuration
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Instructions */}

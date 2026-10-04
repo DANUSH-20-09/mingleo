@@ -28,24 +28,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
   className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isAudioRestricted, setIsAudioRestricted] = useState<boolean>(false);
   const [hasActiveVideoTrack, setHasActiveVideoTrack] = useState<boolean>(() => {
     return !!stream && stream.getVideoTracks().some(t => t.readyState !== 'ended');
   });
 
-  const [hasRenderedFrame, setHasRenderedFrame] = useState<boolean>(() => isLocal);
-
-  // Local audio is always muted to prevent echo. Remote audio plays unless muted or restricted by browser.
+  // Local audio is always muted to prevent feedback loop. Remote audio plays unmuted.
   const shouldMuteAudio = isLocal || isMuted || isRemoteMuted || muteVideoElement;
 
   useEffect(() => {
     const videoEl = videoRef.current;
+    const audioEl = audioRef.current;
     if (!videoEl) return;
 
     if (!stream) {
       videoEl.srcObject = null;
+      if (audioEl) audioEl.srcObject = null;
       setHasActiveVideoTrack(false);
-      setHasRenderedFrame(isLocal);
       return;
     }
 
@@ -53,20 +53,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       const vTracks = stream.getVideoTracks();
       const hasLive = vTracks.length > 0 && vTracks.some(t => t.readyState !== 'ended');
       setHasActiveVideoTrack(hasLive);
-      if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
-        setHasRenderedFrame(true);
-      }
     };
 
     checkVideo();
 
+    // Attach stream to video element if changed
     if (videoEl.srcObject !== stream) {
       videoEl.srcObject = stream;
     }
     videoEl.autoplay = true;
     videoEl.playsInline = true;
 
-    // Apply muted state
+    // Attach stream to dedicated remote audio element if remote
+    if (!isLocal && audioEl && audioEl.srcObject !== stream) {
+      audioEl.srcObject = stream;
+      audioEl.autoplay = true;
+      audioEl.muted = shouldMuteAudio;
+      audioEl.volume = 1.0;
+    }
+
+    // Apply muted state to video element
     const effectiveMute = shouldMuteAudio || isAudioRestricted;
     videoEl.muted = effectiveMute;
     if (!isLocal) {
@@ -76,18 +82,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     const startPlayback = async () => {
       try {
         await videoEl.play();
-        if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
-          setHasRenderedFrame(true);
+        if (!isLocal && audioEl) {
+          audioEl.muted = shouldMuteAudio;
+          await audioEl.play().catch(() => {});
         }
-        // If unmuted playback succeeded and was previously marked restricted, lift restriction
         if (!shouldMuteAudio && isAudioRestricted) {
-          videoEl.muted = false;
           setIsAudioRestricted(false);
         }
       } catch (err: any) {
-        console.warn('[VideoPlayer] Play call error:', err?.name, err?.message);
+        console.warn('[VideoPlayer] Playback policy:', err?.name, err?.message);
         if (err?.name === 'NotAllowedError') {
-          // Autoplay restricted: mute and play so video continues, show unmute pill
+          // Autoplay restricted by browser: mute video element to keep video rendering
           videoEl.muted = true;
           setIsAudioRestricted(true);
           videoEl.play().catch(() => {});
@@ -100,38 +105,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     startPlayback();
 
     const handleTrackChange = () => {
-      if (videoEl && stream) {
-        if (videoEl.srcObject !== stream) {
-          videoEl.srcObject = stream;
-        }
-        checkVideo();
-        startPlayback();
-      }
+      checkVideo();
+      startPlayback();
     };
 
     stream.addEventListener('addtrack', handleTrackChange);
     stream.addEventListener('removetrack', handleTrackChange);
 
-    stream.getVideoTracks().forEach(t => {
-      t.addEventListener('unmute', () => {
-        checkVideo();
-        setHasRenderedFrame(true);
-        startPlayback();
-      });
-      t.addEventListener('mute', () => {
-        if (!isLocal) setHasRenderedFrame(false);
-        checkVideo();
-      });
-    });
-
-    const frameInterval = setInterval(() => {
-      if (videoEl && videoEl.videoWidth > 0 && videoEl.readyState >= 2) {
-        setHasRenderedFrame(true);
-      }
-    }, 400);
-
     return () => {
-      clearInterval(frameInterval);
       stream.removeEventListener('addtrack', handleTrackChange);
       stream.removeEventListener('removetrack', handleTrackChange);
     };
@@ -140,6 +121,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
   const handleUnmute = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const videoEl = videoRef.current;
+    const audioEl = audioRef.current;
+
+    if (audioEl) {
+      audioEl.muted = false;
+      audioEl.volume = 1.0;
+      audioEl.play().then(() => {
+        setIsAudioRestricted(false);
+      }).catch(() => {});
+    }
+
     if (videoEl) {
       videoEl.muted = false;
       videoEl.volume = 1.0;
@@ -147,20 +138,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         setIsAudioRestricted(false);
       }).catch((err) => {
         console.warn('[VideoPlayer] Manual unmute rejected:', err);
-        videoEl.muted = true;
-        setIsAudioRestricted(true);
       });
     }
   };
 
-  const isDisplayingVideo = !isVideoOff && !!stream && hasActiveVideoTrack && (isLocal || hasRenderedFrame);
+  // Video is displayed whenever not disabled and stream has a video track
+  const isDisplayingVideo = !isVideoOff && !!stream && hasActiveVideoTrack;
 
   return (
     <div
       onClick={isAudioRestricted && !isLocal ? handleUnmute : undefined}
       className={`relative w-full h-full bg-slate-950 overflow-hidden rounded-2xl border border-slate-800/80 shadow-glass transition-colors select-none ${className}`}
     >
-      {/* Active Video Stream Element - Always mounted and rendering */}
+      {/* Dedicated Invisible Audio Element for Uncompromised Remote Audio */}
+      {!isLocal && stream && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          playsInline
+          muted={shouldMuteAudio || isAudioRestricted}
+          className="hidden"
+        />
+      )}
+
+      {/* Active Video Stream Element - Always mounted and rendering without artificial hiding */}
       <video
         ref={videoRef}
         autoPlay
@@ -168,24 +169,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         webkit-playsinline="true"
         x5-playsinline="true"
         muted={shouldMuteAudio || isAudioRestricted}
-        onLoadedMetadata={() => {
-          videoRef.current?.play().catch(() => {});
-          if (videoRef.current && videoRef.current.videoWidth > 0) {
-            setHasRenderedFrame(true);
-          }
-        }}
-        onLoadedData={() => {
-          if (videoRef.current && videoRef.current.videoWidth > 0) {
-            setHasRenderedFrame(true);
-          }
-        }}
-        onPlaying={() => {
-          setHasRenderedFrame(true);
-        }}
-        onCanPlay={() => {
-          videoRef.current?.play().catch(() => {});
-        }}
-        className={`w-full h-full transition-opacity duration-300 ${
+        className={`w-full h-full ${
           isDisplayingVideo ? 'opacity-100 block' : 'opacity-0 pointer-events-none absolute inset-0'
         } ${
           isScreenShare
@@ -194,7 +178,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         }`}
       />
 
-      {/* Camera Off or Waiting Placeholder Overlay - Never a black void */}
+      {/* Camera Off or Waiting Placeholder Overlay */}
       {!isDisplayingVideo && (
         <div className="absolute inset-0 z-10 w-full h-full flex flex-col items-center justify-center bg-[#070b14]/95 text-slate-400 p-4 text-center select-none">
           <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-700/80 flex items-center justify-center mb-2 shadow-inner">

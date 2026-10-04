@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
-import { ICE_SERVERS } from '../config/constants';
+import { getIceConfiguration } from '../config/constants';
 import { WebRTCConnectionStatus, WebRTCDiagnostics } from '../types';
 
 interface UseWebRTCProps {
@@ -288,9 +288,10 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     if (!socket) return;
 
     setConnectionStatus('connecting');
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(getIceConfiguration());
     peerConnectionRef.current = pc;
-    remoteMediaStreamRef.current = new MediaStream();
+    const remoteStreamInstance = new MediaStream();
+    remoteMediaStreamRef.current = remoteStreamInstance;
 
     // 1. Attach local tracks to peer connection
     const activeLocalStream = localStream || localStreamRef.current;
@@ -330,36 +331,14 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     const activeSenders = pc.getSenders();
     console.log(`[WebRTC] Senders verified: Audio=${activeSenders.some(s => s.track?.kind === 'audio')}, Video=${activeSenders.some(s => s.track?.kind === 'video')}`);
 
-    // Prioritize VP8 codec across video transceivers for universal Android <-> Mac / iOS hardware compatibility
-    try {
-      const getCaps = (typeof RTCRtpReceiver !== 'undefined' && typeof RTCRtpReceiver.getCapabilities === 'function')
-        ? RTCRtpReceiver.getCapabilities('video')
-        : ((typeof RTCRtpSender !== 'undefined' && typeof RTCRtpSender.getCapabilities === 'function') ? RTCRtpSender.getCapabilities('video') : null);
-      if (getCaps && getCaps.codecs && getCaps.codecs.length > 0) {
-        const vp8Codecs = getCaps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/vp8');
-        const otherCodecs = getCaps.codecs.filter(c => c.mimeType.toLowerCase() !== 'video/vp8');
-        const prioritizedCodecs = [...vp8Codecs, ...otherCodecs];
-        pc.getTransceivers().forEach(tr => {
-          if (tr.receiver && tr.receiver.track && tr.receiver.track.kind === 'video' && typeof tr.setCodecPreferences === 'function') {
-            try {
-              tr.setCodecPreferences(prioritizedCodecs);
-            } catch (_) {}
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('[WebRTC] Codec preferences note:', e);
-    }
-
-    // 3. Handle remote track reception into accumulator stream
+    // 3. Handle remote track reception cleanly into a single stable MediaStream
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
       event.track.enabled = true;
 
       const remoteAccumulator = remoteMediaStreamRef.current;
-      if (!remoteAccumulator.getTracks().some(t => t.id === event.track.id)) {
-        remoteAccumulator.addTrack(event.track);
-      }
+
+      // Prefer incoming stream if available from browser
       if (event.streams && event.streams[0]) {
         event.streams[0].getTracks().forEach(t => {
           t.enabled = true;
@@ -367,21 +346,21 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
             remoteAccumulator.addTrack(t);
           }
         });
+      } else {
+        if (!remoteAccumulator.getTracks().some(t => t.id === event.track.id)) {
+          remoteAccumulator.addTrack(event.track);
+        }
       }
 
-      const updatedStream = new MediaStream(remoteAccumulator.getTracks());
-      setRemoteStream(updatedStream);
-      setConnectionStatus('connected');
+      setRemoteStream(remoteAccumulator);
 
       event.track.onunmute = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track unmuted (media packets flowing)`);
-        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
 
       event.track.onended = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track ended`);
         remoteMediaStreamRef.current.removeTrack(event.track);
-        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
     };
 
@@ -506,12 +485,12 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         });
     }
 
-    // Helper to add candidate safely
+    // Helper to add candidate safely across all mobile & desktop browsers
     const addIceCandidateSafe = async (cand: any) => {
       const activePc = peerConnectionRef.current;
       if (!cand || !cand.candidate || !activePc || activePc.signalingState === 'closed') return;
       try {
-        await activePc.addIceCandidate(cand);
+        await activePc.addIceCandidate(new RTCIceCandidate(cand));
       } catch (err: any) {
         console.warn('[WebRTC] Note adding candidate:', err?.message || err);
       }

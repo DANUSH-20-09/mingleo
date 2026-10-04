@@ -4,47 +4,56 @@ import { LanguageInfo, VideoQualityPreset } from '../types';
 export const APP_NAME = 'Mingleo';
 export const APP_TAGLINE = 'Random Video Chat • One click. A new connection.';
 
-// WebRTC ICE Configuration (STUN & TURN relay servers for instant Android mobile, CGNAT & symmetric NAT traversal)
-export const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    // 1. Google High-Speed Global STUN Servers
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
+// WebRTC ICE Configuration (STUN & TURN relay servers for cross-device & mobile CGNAT traversal)
+export const DEFAULT_STUN_SERVERS: RTCIceServer[] = [
+  // 1. Google High-Speed Global STUN Servers
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
 
-    // 2. Cloudflare Global Low-Latency Anycast STUN
-    { urls: 'stun:stun.cloudflare.com:3478' },
+  // 2. Cloudflare Global Low-Latency Anycast STUN
+  { urls: 'stun:stun.cloudflare.com:3478' },
 
-    // 3. Metered Open Relay Global TURN Infrastructure (Ports 80 & 443 bypass firewalls and CGNAT)
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-        'turns:openrelay.metered.ca:443?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
+  // 3. Twilio Global Anycast STUN
+  { urls: 'stun:global.stun.twilio.com:3478' },
 
-    // 4. Metered Global Relay Secondary Fallback
-    {
-      urls: [
-        'turn:global.relay.metered.ca:80',
-        'turn:global.relay.metered.ca:443',
-        'turn:global.relay.metered.ca:443?transport=tcp',
-        'turns:global.relay.metered.ca:443?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-  iceCandidatePoolSize: 0,
-  bundlePolicy: 'max-bundle',
-  rtcpMuxPolicy: 'require',
-};
+  // 4. Sipgate STUN Server
+  { urls: 'stun:stun.sipgate.net:3478' },
+];
+
+/**
+ * Retrieves the current WebRTC ICE configuration, merging default STUN servers
+ * with any active TURN relay credentials saved by the user in Settings or environment.
+ */
+export function getIceConfiguration(): RTCConfiguration {
+  const servers: RTCIceServer[] = [...DEFAULT_STUN_SERVERS];
+
+  try {
+    // Check if user has saved custom TURN credentials in localStorage
+    const savedTurnJson = typeof localStorage !== 'undefined' ? localStorage.getItem('mingleo_turn_config') : null;
+    if (savedTurnJson) {
+      const parsed = JSON.parse(savedTurnJson);
+      if (Array.isArray(parsed)) {
+        servers.unshift(...parsed);
+      } else if (parsed && parsed.urls) {
+        servers.unshift(parsed);
+      }
+    }
+  } catch (e) {
+    console.warn('[WebRTC] Note loading custom TURN configuration:', e);
+  }
+
+  return {
+    iceServers: servers,
+    iceCandidatePoolSize: 0,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
+  };
+}
+
+export const ICE_SERVERS: RTCConfiguration = getIceConfiguration();
 
 // Supported Languages with Native Scripts & Info
 export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
