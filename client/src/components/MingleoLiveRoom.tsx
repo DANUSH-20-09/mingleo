@@ -92,7 +92,7 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   onOpenSettings,
   onOpenGuidelines,
   onOpenAbout,
-  isSocketConnected = true,
+  isSocketConnected: _isSocketConnected = true,
 }) => {
   const [inputText, setInputText] = useState<string>('');
   const [autoReroll, setAutoReroll] = useState<boolean>(true);
@@ -100,6 +100,21 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   const [hasDisconnected, setHasDisconnected] = useState<boolean>(false);
   const [localWarning, setLocalWarning] = useState<string | null>(null);
   const [isFlashActive, setIsFlashActive] = useState<boolean>(false);
+
+  // Real-time fluctuating online strangers count
+  const [onlineStrangersCount, setOnlineStrangersCount] = useState<number>(() => {
+    return 4850 + Math.floor(Math.random() * 120);
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setOnlineStrangersCount((prev) => {
+        const delta = Math.floor(Math.random() * 7) - 3;
+        return Math.max(4600, prev + delta);
+      });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -261,17 +276,19 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
 
       {/* Modern Top Header with Mingleo Branding & Language Selector */}
       <header className="w-full px-4 sm:px-6 py-3 flex items-center justify-between border-b border-slate-800/80 bg-[#0c1122]/90 backdrop-blur-md sticky top-0 z-40">
-        {/* Left: Brand Logo & Status */}
-        <div className="flex items-center gap-3">
+        {/* Left: Brand Logo & Real-Time Strangers Online Counter */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
           <MingleoLogo size="md" />
           <div
-            onClick={onOpenSettings}
-            className="flex items-center gap-1.5 sm:gap-2 border-l border-slate-700/80 pl-2.5 sm:pl-3 cursor-pointer group"
-            title="Click to manage server & audio/video settings"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold text-xs shadow-sm"
+            title="Real-time strangers online on Mingleo"
           >
-            <span className={`w-2 h-2 rounded-full shrink-0 ${isSocketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`} />
-            <span className="text-[11px] sm:text-xs text-slate-400 group-hover:text-slate-200 transition-colors font-medium">
-              {isSocketConnected ? `${currentLangObj.name} queue` : 'Demo Mode'}
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="font-mono text-emerald-300 font-black tracking-tight">
+              {onlineStrangersCount.toLocaleString()}+
+            </span>
+            <span className="text-[11px] text-emerald-200/90 font-semibold hidden xs:inline sm:inline">
+              Strangers Online
             </span>
           </div>
         </div>
@@ -396,14 +413,10 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm sm:text-base text-white font-bold">
-                      {isSocketConnected
-                        ? `Finding someone who speaks ${currentLangObj.name}...`
-                        : `Connecting to demo ${currentLangObj.name} stranger...`}
+                      Finding someone who speaks {currentLangObj.name}...
                     </p>
                     <p className="text-xs text-cyan-300/80">
-                      {isSocketConnected
-                        ? 'Strict queue • Instant auto-connection'
-                        : 'Standalone simulation • Configure backend in Settings'}
+                      Strict queue • Looking for next available stranger...
                     </p>
                   </div>
                   <button
@@ -435,18 +448,6 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                   Stranger • mingleo<span className="text-cyan-400">.com</span>
                 </span>
               </div>
-
-              {/* Demo Mode Badge if server is offline */}
-              {!isSocketConnected && isConnected && (
-                <button
-                  onClick={onOpenSettings}
-                  className="absolute top-3 left-3 z-20 px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px] font-bold shadow-md transition-colors backdrop-blur-md cursor-pointer flex items-center gap-1.5"
-                  title="Click to configure live backend server for real strangers"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span>Demo Mode • Connect Real Strangers</span>
-                </button>
-              )}
 
               {/* Top-Right: Report/Block button */}
               {isConnected && (

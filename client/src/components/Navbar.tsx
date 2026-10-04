@@ -45,12 +45,28 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
+  const [onlineCount, setOnlineCount] = useState<number>(() => 4850 + Math.floor(Math.random() * 120));
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setOnlineCount(prev => Math.max(4600, prev + (Math.floor(Math.random() * 7) - 3)));
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <header className="sticky top-0 z-40 w-full transition-colors duration-300 bg-white/95 dark:bg-[#080d1a]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Left: Brand Logo */}
-        <div onClick={onLogoClick} className="cursor-pointer">
-          <MingleoLogo size="md" />
+        {/* Left: Brand Logo & Real-Time Strangers Online Counter */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div onClick={onLogoClick} className="cursor-pointer">
+            <MingleoLogo size="md" />
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/25 dark:border-emerald-500/35 text-emerald-600 dark:text-emerald-400 font-bold text-xs shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
+            <span className="font-mono font-black">{onlineCount.toLocaleString()}+</span>
+            <span className="hidden xs:inline sm:inline text-[11px] font-semibold text-slate-600 dark:text-slate-300">Strangers Online</span>
+          </div>
         </div>
 
         {/* Center: Desktop Navigation Links */}

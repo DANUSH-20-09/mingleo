@@ -114,26 +114,8 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
 
       // Emit to both users in room
       io.to(room.peerA).emit('chat_message', messagePayload);
-      if (room.peerB && !room.peerB.startsWith('sim_bot_')) {
+      if (room.peerB) {
         io.to(room.peerB).emit('chat_message', messagePayload);
-      } else if (room.isSimulated) {
-        // Dev Simulated bot responds friendly after a brief delay
-        setTimeout(() => {
-          const simReplies = [
-            `Hey! Nice to connect with another ${room.language.toUpperCase()} speaker! 😊`,
-            `Awesome! The video & audio stream looks crystal clear!`,
-            `How is your day going? Everything works smoothly! ✨`,
-            `I'm loving the dark theme and smooth WebRTC connection on VibeConnect! 🚀`
-          ];
-          const reply = simReplies[Math.floor(Math.random() * simReplies.length)];
-          socket.emit('chat_message', {
-            id: `msg_${Date.now()}_sim`,
-            senderId: 'sim_bot',
-            senderName: 'Simulated Partner',
-            text: reply,
-            timestamp: Date.now()
-          });
-        }, 1200);
       }
     });
 
@@ -142,7 +124,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
       const room = store.getRoom(data.roomId);
       if (!room) return;
       const otherSocketId = room.peerA === socket.id ? room.peerB : room.peerA;
-      if (otherSocketId && !otherSocketId.startsWith('sim_bot_')) {
+      if (otherSocketId) {
         io.to(otherSocketId).emit('receive_reaction', {
           emoji: data.emoji,
           from: socket.id
@@ -155,7 +137,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
       const room = store.getRoom(data.roomId);
       if (!room) return;
       const otherSocketId = room.peerA === socket.id ? room.peerB : room.peerA;
-      if (otherSocketId && !otherSocketId.startsWith('sim_bot_')) {
+      if (otherSocketId) {
         io.to(otherSocketId).emit('remote_screen_share_change', {
           isSharing: data.isSharing,
           from: socket.id
@@ -168,7 +150,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
       const room = store.getRoom(data.roomId);
       if (!room) return;
       const otherSocketId = room.peerA === socket.id ? room.peerB : room.peerA;
-      if (otherSocketId && !otherSocketId.startsWith('sim_bot_')) {
+      if (otherSocketId) {
         io.to(otherSocketId).emit('remote_media_state_change', {
           isAudioMuted: data.isAudioMuted,
           isVideoDisabled: data.isVideoDisabled,
@@ -186,7 +168,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
         const room = store.removeRoom(activeRoomId);
         if (room) {
           const partnerId = room.peerA === socket.id ? room.peerB : room.peerA;
-          if (partnerId && !partnerId.startsWith('sim_bot_')) {
+          if (partnerId) {
             io.to(partnerId).emit('partner_disconnected', {
               roomId: room.roomId,
               reason: 'Stranger skipped to the next match'
@@ -215,7 +197,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
         const room = store.removeRoom(activeRoomId);
         if (room) {
           const partnerId = room.peerA === socket.id ? room.peerB : room.peerA;
-          if (partnerId && !partnerId.startsWith('sim_bot_')) {
+          if (partnerId) {
             io.to(partnerId).emit('partner_disconnected', {
               roomId: room.roomId,
               reason: 'Stranger ended the call'

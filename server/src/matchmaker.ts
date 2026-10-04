@@ -140,14 +140,6 @@ export class Matchmaker {
     this.languageQueues.set(language, validEntries);
 
     if (validEntries.length < 2) {
-      // Check if the solo user explicitly requested simulation or dev mode fallback
-      if (validEntries.length === 1) {
-        const soloUser = validEntries[0];
-        const waitTime = Date.now() - soloUser.joinedAt;
-        if (soloUser.wantsSimulation || (process.env.DEV_AUTO_SIMULATE === 'true' && waitTime > 4000)) {
-          this.pairWithSimulatedPartner(soloUser);
-        }
-      }
       return;
     }
 
@@ -257,29 +249,7 @@ export class Matchmaker {
     });
   }
 
-  private pairWithSimulatedPartner(userEntry: QueueEntry): void {
-    const socket = this.io.sockets.sockets.get(userEntry.socketId);
-    if (!socket) return;
 
-    this.dequeueUser(userEntry.socketId);
-
-    const simSocketId = `sim_bot_${Math.random().toString(36).substring(2, 7)}`;
-    const simNames = ['Aarya (Simulated Partner)', 'Vikram (Simulated Partner)', 'Maya (Simulated Partner)', 'Rohan (Simulated Partner)'];
-    const simName = simNames[Math.floor(Math.random() * simNames.length)];
-
-    const room = store.createRoom(userEntry.socketId, simSocketId, userEntry.language, true);
-
-    console.log(`[Matchmaker] Connected ${userEntry.username} to ${simName} [Dev Simulation] in room ${room.roomId}`);
-
-    socket.emit('matched', {
-      roomId: room.roomId,
-      peerSocketId: simSocketId,
-      peerName: simName,
-      isInitiator: true,
-      language: userEntry.language,
-      isSimulated: true
-    });
-  }
 
   public getQueueStats() {
     const stats: Record<string, number> = {};

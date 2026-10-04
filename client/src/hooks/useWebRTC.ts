@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import { ICE_SERVERS } from '../config/constants';
 import { WebRTCConnectionStatus, WebRTCDiagnostics } from '../types';
-import { createSimulatedMediaStream } from '../utils/mediaStream';
 
 interface UseWebRTCProps {
   socket: Socket | null;
@@ -46,7 +45,6 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
-  const simulatedStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const statsIntervalRef = useRef<any>(null);
   const prevStatsRef = useRef<{ timestamp: number; audioBytes: number; videoBytes: number }>({
@@ -243,11 +241,6 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       peerConnectionRef.current = null;
     }
 
-    if (simulatedStreamRef.current) {
-      simulatedStreamRef.current.getTracks().forEach(t => t.stop());
-      simulatedStreamRef.current = null;
-    }
-
     iceCandidatesQueue.current = [];
     setRemoteStream(null);
     setIsRemoteAudioMuted(false);
@@ -278,24 +271,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       return;
     }
 
-    // 1. Handle Simulated Partner (Dev Mode)
-    if (matchData.isSimulated) {
-      console.log('[WebRTC] Initializing synthetic stream for simulated partner...');
-      setConnectionStatus('connecting');
-      const timer = setTimeout(() => {
-        const simStream = createSimulatedMediaStream(matchData.peerName, matchData.language);
-        simulatedStreamRef.current = simStream;
-        setRemoteStream(simStream);
-        setConnectionStatus('connected');
-      }, 700);
-
-      return () => {
-        clearTimeout(timer);
-        cleanupConnection();
-      };
-    }
-
-    // 2. Real WebRTC Peer Connection
+    // Real WebRTC Peer Connection
     if (!socket) return;
 
     setConnectionStatus('connecting');

@@ -213,39 +213,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [guestId, serverUrlState]);
 
-  const startSearch = (wantsSimulation: boolean = false) => {
+  const startSearch = () => {
     setMatchData(null);
     setMessages([]);
     setIsSearching(true);
 
-    const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isSocketReady = socketRef.current && socketRef.current.connected;
-
-    // If explicitly requested OR if backend is unreachable (e.g. on Netlify before backend is hosted)
-    if (wantsSimulation || (!isSocketReady && !isLocalDev)) {
-      console.log('[Socket] Launching standalone demo match...');
-      setTimeout(() => {
-        setIsSearching(false);
-        const simData: MatchData = {
-          roomId: `sim_${Date.now()}`,
-          peerSocketId: `sim_stranger_${Date.now()}`,
-          peerName: 'Stranger (Demo)',
-          isInitiator: true,
-          language: selectedLanguage,
-          isSimulated: true
-        };
-        setMatchData(simData);
-        SoundEffects.playMatchSound();
-      }, 1000);
-      return;
-    }
-
     if (socketRef.current) {
+      if (!socketRef.current.connected) {
+        socketRef.current.connect();
+      }
       socketRef.current.emit('join_queue', {
         guestId,
         username,
         language: selectedLanguage,
-        wantsSimulation
       });
     }
   };
@@ -259,17 +239,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const nextMatch = (requeue: boolean = true) => {
     SoundEffects.playSkipSound();
-    const wasSimulated = matchData?.isSimulated;
     const roomId = matchData?.roomId;
     setMatchData(null);
     setMessages([]);
-
-    if (wasSimulated) {
-      if (requeue) {
-        startSearch(true);
-      }
-      return;
-    }
 
     if (requeue) {
       setIsSearching(true);
@@ -277,56 +249,22 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('next_partner', { roomId, requeue });
     } else if (requeue) {
-      startSearch(true);
+      startSearch();
     }
   };
 
   const endCall = () => {
     SoundEffects.playSkipSound();
-    const wasSimulated = matchData?.isSimulated;
     const roomId = matchData?.roomId;
     setMatchData(null);
     setIsSearching(false);
-    if (!wasSimulated && socketRef.current && socketRef.current.connected) {
+    if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('end_call', { roomId });
     }
   };
 
   const sendMessage = (text: string) => {
     if (!text.trim()) return;
-
-    if (matchData?.isSimulated) {
-      const selfMsg: ChatMessage = {
-        id: `msg_${Date.now()}`,
-        senderId: guestId,
-        senderName: username,
-        text: text.trim(),
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, selfMsg]);
-
-      // Friendly automated demo conversation response
-      setTimeout(() => {
-        const demoResponses = [
-          "Hello! Nice to meet you 😊",
-          "Hey! Greetings from across the world! 👋",
-          "Haha yes! How is your day going? ✨",
-          "That's awesome! Glad we connected here on Mingleo! 🚀",
-          "What kind of music or hobbies do you enjoy? 🎨"
-        ];
-        const randomReply = demoResponses[Math.floor(Math.random() * demoResponses.length)];
-        const replyMsg: ChatMessage = {
-          id: `msg_sim_${Date.now()}`,
-          senderId: 'sim_stranger',
-          senderName: 'Stranger (Demo)',
-          text: randomReply,
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, replyMsg]);
-        SoundEffects.playMessageSound();
-      }, 1200);
-      return;
-    }
 
     if (!socketRef.current || !matchData) return;
     socketRef.current.emit('chat_message', {
@@ -338,7 +276,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const sendReaction = (emoji: string) => {
     setLastReaction({ emoji, id: `${Date.now()}_self` });
     SoundEffects.playReactionSound();
-    if (socketRef.current && matchData && !matchData.isSimulated) {
+    if (socketRef.current && matchData) {
       socketRef.current.emit('send_reaction', {
         roomId: matchData.roomId,
         emoji

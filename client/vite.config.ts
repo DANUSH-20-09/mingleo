@@ -18,5 +18,20 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  preview: {
+    port: 4173,
+    host: true,
+    proxy: {
+      '/socket.io': {
+        target: 'http://127.0.0.1:5001',
+        ws: true,
+        changeOrigin: true
+      },
+      '/api': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true
+      }
+    }
   }
 });
