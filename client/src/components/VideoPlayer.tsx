@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { User, VideoOff, MicOff, Monitor, VolumeX, Volume2 } from 'lucide-react';
+import { User, VideoOff, MicOff, Monitor, VolumeX } from 'lucide-react';
 
 interface VideoPlayerProps {
   stream: MediaStream | null;
@@ -28,12 +28,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
   className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const [isAudioRestricted, setIsAudioRestricted] = useState<boolean>(false);
   const [hasActiveVideoTrack, setHasActiveVideoTrack] = useState<boolean>(() => {
-    return !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+    return !!stream && stream.getVideoTracks().some(t => t.readyState !== 'ended');
   });
 
-  const shouldMuteVideo = isLocal || isMuted || muteVideoElement;
+  const shouldMuteAudio = isLocal || isMuted || isRemoteMuted || muteVideoElement;
 
   useEffect(() => {
     const videoEl = videoRef.current;
@@ -46,50 +46,61 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     }
 
     const checkVideo = () => {
-      const hasLiveVideo = stream.getVideoTracks().some(t => t.readyState === 'live');
-      setHasActiveVideoTrack(hasLiveVideo);
+      const vTracks = stream.getVideoTracks();
+      const hasLive = vTracks.length > 0 && vTracks.some(t => t.readyState !== 'ended');
+      setHasActiveVideoTrack(hasLive);
     };
 
     checkVideo();
 
-    // Always ensure current stream is assigned
-    videoEl.srcObject = stream;
+    // Assign stream to video element
+    if (videoEl.srcObject !== stream) {
+      videoEl.srcObject = stream;
+    }
     videoEl.autoplay = true;
     videoEl.playsInline = true;
-    videoEl.muted = shouldMuteVideo;
 
-    const tryPlay = () => {
-      const playPromise = videoEl.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            setAutoplayBlocked(false);
-          })
-          .catch((err) => {
-            if (!shouldMuteVideo) {
-              console.warn('[VideoPlayer] Unmuted playback restricted by browser policy. Playing muted video while offering audio unmute:', err.message);
-              setAutoplayBlocked(true);
-              videoEl.muted = true;
-              videoEl.play().catch(() => {});
-            }
+    // Start with muted to guarantee instant playback without browser autoplay policy rejection
+    videoEl.muted = shouldMuteAudio || isAudioRestricted;
+
+    const startPlayback = async () => {
+      try {
+        await videoEl.play();
+        // If audio should be unmuted and not already restricted, attempt unmuting
+        if (!shouldMuteAudio && !isAudioRestricted) {
+          videoEl.muted = false;
+          videoEl.play().catch(() => {
+            // Unmuted playback rejected by browser: revert to muted and show floating unmute pill
+            videoEl.muted = true;
+            setIsAudioRestricted(true);
+            videoEl.play().catch(() => {});
           });
+        }
+      } catch (err: any) {
+        // Fallback: ensure video plays muted so video frames flow immediately
+        videoEl.muted = true;
+        if (!shouldMuteAudio) {
+          setIsAudioRestricted(true);
+        }
+        videoEl.play().catch(() => {});
       }
     };
 
-    tryPlay();
+    startPlayback();
 
     const handleTrackChange = () => {
       if (videoEl && stream) {
-        videoEl.srcObject = stream;
+        if (videoEl.srcObject !== stream) {
+          videoEl.srcObject = stream;
+        }
         checkVideo();
-        tryPlay();
+        startPlayback();
       }
     };
 
     stream.addEventListener('addtrack', handleTrackChange);
     stream.addEventListener('removetrack', handleTrackChange);
 
-    // Listen to video track mute/unmute
     stream.getVideoTracks().forEach(t => {
       t.addEventListener('unmute', checkVideo);
       t.addEventListener('mute', checkVideo);
@@ -103,43 +114,42 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         t.removeEventListener('mute', checkVideo);
       });
     };
-  }, [stream, shouldMuteVideo]);
+  }, [stream, shouldMuteAudio]);
 
-  const handleEnableAudio = () => {
+  const handleUnmute = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     const videoEl = videoRef.current;
     if (videoEl) {
       videoEl.muted = false;
       videoEl.play()
         .then(() => {
-          setAutoplayBlocked(false);
+          setIsAudioRestricted(false);
         })
         .catch(() => {
           videoEl.muted = true;
-          videoEl.play();
+          videoEl.play().catch(() => {});
         });
     }
   };
 
   return (
     <div
-      className={`relative w-full h-full bg-slate-950 overflow-hidden rounded-2xl border border-slate-800/80 shadow-glass transition-colors ${className}`}
+      onClick={isAudioRestricted && !isLocal ? handleUnmute : undefined}
+      className={`relative w-full h-full bg-slate-950 overflow-hidden rounded-2xl border border-slate-800/80 shadow-glass transition-colors select-none ${className}`}
     >
-      {/* Active Video Stream Element - always mounted and visible to browser compositor to prevent Android decoder pauses */}
+      {/* Active Video Stream Element - Always mounted and rendering */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={shouldMuteVideo}
+        webkit-playsinline="true"
+        x5-playsinline="true"
+        muted={shouldMuteAudio || isAudioRestricted}
         onLoadedMetadata={() => {
           videoRef.current?.play().catch(() => {});
         }}
         onCanPlay={() => {
           videoRef.current?.play().catch(() => {});
-        }}
-        onPause={() => {
-          if (stream && !isVideoOff) {
-            videoRef.current?.play().catch(() => {});
-          }
         }}
         className={`w-full h-full transition-opacity duration-200 ${
           isVideoOff || !stream || !hasActiveVideoTrack ? 'opacity-0 pointer-events-none absolute inset-0' : 'opacity-100 block'
@@ -172,22 +182,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
         </div>
       )}
 
-      {/* Autoplay blocked overlay for unmuted video */}
-      {autoplayBlocked && !isLocal && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-dark-950/85 backdrop-blur-sm p-4 text-center select-none">
-          <div className="w-12 h-12 rounded-full bg-brand-cyan/20 border border-brand-cyan/40 flex items-center justify-center text-brand-cyan mb-2 animate-bounce">
-            <VolumeX className="w-6 h-6" />
-          </div>
-          <h4 className="text-sm font-bold text-white mb-1">Audio Autoplay Restricted</h4>
-          <p className="text-xs text-slate-300 mb-3 max-w-xs">
-            Your browser requires a quick tap to enable audio playback.
-          </p>
+      {/* Sleek Floating Unmute Button (Never blocks video visibility!) */}
+      {isAudioRestricted && !isLocal && (
+        <div className="absolute top-3 right-3 z-30 pointer-events-auto animate-bounce">
           <button
-            onClick={handleEnableAudio}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-brand-purple to-brand-cyan text-white text-xs font-bold shadow-glow-cyan hover:opacity-90 flex items-center gap-1.5"
+            onClick={handleUnmute}
+            className="px-3.5 py-1.5 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-extrabold shadow-lg shadow-cyan-500/40 flex items-center gap-1.5 transition-transform hover:scale-105"
           >
-            <Volume2 className="w-4 h-4" />
-            <span>Tap to Enable Audio</span>
+            <VolumeX className="w-4 h-4 text-slate-950" />
+            <span>Tap to Unmute</span>
           </button>
         </div>
       )}

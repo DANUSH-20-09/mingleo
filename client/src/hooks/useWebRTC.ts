@@ -320,6 +320,27 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       }
     }
 
+    // Prioritize VP8 codec across video transceivers for universal Android <-> Mac / iOS hardware compatibility
+    try {
+      if (typeof RTCRtpSender.getCapabilities === 'function') {
+        const videoCaps = RTCRtpSender.getCapabilities('video');
+        if (videoCaps && videoCaps.codecs) {
+          const vp8Codecs = videoCaps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/vp8');
+          const otherCodecs = videoCaps.codecs.filter(c => c.mimeType.toLowerCase() !== 'video/vp8');
+          const prioritizedCodecs = [...vp8Codecs, ...otherCodecs];
+          pc.getTransceivers().forEach(tr => {
+            if (tr.receiver.track.kind === 'video' && typeof tr.setCodecPreferences === 'function') {
+              try {
+                tr.setCodecPreferences(prioritizedCodecs);
+              } catch (_) {}
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[WebRTC] Codec preferences note:', e);
+    }
+
     // 3. Handle remote track reception into accumulator stream
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
