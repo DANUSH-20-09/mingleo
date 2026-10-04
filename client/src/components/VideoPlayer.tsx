@@ -124,7 +124,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       });
     });
 
+    const frameInterval = setInterval(() => {
+      if (videoEl && videoEl.videoWidth > 0 && videoEl.readyState >= 2) {
+        setHasRenderedFrame(true);
+      }
+    }, 400);
+
     return () => {
+      clearInterval(frameInterval);
       stream.removeEventListener('addtrack', handleTrackChange);
       stream.removeEventListener('removetrack', handleTrackChange);
     };

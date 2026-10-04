@@ -98,4 +98,5 @@ export interface WebRTCDiagnostics {
   iceConnectionState: RTCIceConnectionState | null;
   iceGatheringState: RTCIceGatheringState | null;
   signalingState: RTCSignalingState | null;
+  peerConnectionState?: RTCPeerConnectionState | null;
 }

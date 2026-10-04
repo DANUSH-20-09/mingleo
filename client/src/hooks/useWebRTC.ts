@@ -308,7 +308,8 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     }
 
     // 2. Ensure bidirectional transceivers exist with direction 'sendrecv'
-    const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+    const senders = pc.getSenders();
+    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
     if (!audioSender) {
       try {
         pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -317,7 +318,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       }
     }
 
-    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
     if (!videoSender) {
       try {
         pc.addTransceiver('video', { direction: 'sendrecv' });
@@ -325,6 +326,9 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         console.warn('[WebRTC] Video transceiver note:', e);
       }
     }
+
+    const activeSenders = pc.getSenders();
+    console.log(`[WebRTC] Senders verified: Audio=${activeSenders.some(s => s.track?.kind === 'audio')}, Video=${activeSenders.some(s => s.track?.kind === 'video')}`);
 
     // Prioritize VP8 codec across video transceivers for universal Android <-> Mac / iOS hardware compatibility
     try {
@@ -347,40 +351,44 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       console.warn('[WebRTC] Codec preferences note:', e);
     }
 
-    // 3. Handle remote track reception into direct native stream
+    // 3. Handle remote track reception into accumulator stream
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
       event.track.enabled = true;
 
-      let targetStream: MediaStream;
+      const remoteAccumulator = remoteMediaStreamRef.current;
+      if (!remoteAccumulator.getTracks().some(t => t.id === event.track.id)) {
+        remoteAccumulator.addTrack(event.track);
+      }
       if (event.streams && event.streams[0]) {
-        targetStream = event.streams[0];
-        targetStream.getTracks().forEach(t => { t.enabled = true; });
-        remoteMediaStreamRef.current = targetStream;
-      } else {
-        const current = remoteMediaStreamRef.current;
-        if (!current.getTracks().some(t => t.id === event.track.id)) {
-          current.addTrack(event.track);
-        }
-        targetStream = current;
+        event.streams[0].getTracks().forEach(t => {
+          t.enabled = true;
+          if (!remoteAccumulator.getTracks().some(x => x.id === t.id)) {
+            remoteAccumulator.addTrack(t);
+          }
+        });
       }
 
-      setRemoteStream(targetStream);
+      const updatedStream = new MediaStream(remoteAccumulator.getTracks());
+      setRemoteStream(updatedStream);
       setConnectionStatus('connected');
 
       event.track.onunmute = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track unmuted (media packets flowing)`);
-        setRemoteStream(targetStream);
+        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
 
       event.track.onended = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track ended`);
+        remoteMediaStreamRef.current.removeTrack(event.track);
+        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
     };
 
     // 4. Handle local ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
+        console.log(`[WebRTC] LOCAL ICE candidate: type=${(event.candidate as any).type || 'unknown'} protocol=${event.candidate.protocol} sdpMid=${event.candidate.sdpMid}`);
         socket.emit('signal_ice', {
           roomId: matchData.roomId,
           to: matchData.peerSocketId,
@@ -425,7 +433,8 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
     // 5. Monitor connection states
     pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection state:', pc.connectionState);
+      console.log('[WebRTC] PEER connection state:', pc.connectionState);
+      setDiagnostics(prev => ({ ...prev, peerConnectionState: pc.connectionState }));
       if (pc.connectionState === 'connected') {
         setConnectionStatus('connected');
         if (iceWatchdogTimerRef.current) {
@@ -443,7 +452,8 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('[WebRTC] ICE Connection state:', pc.iceConnectionState);
+      console.log('[WebRTC] ICE connection state:', pc.iceConnectionState);
+      setDiagnostics(prev => ({ ...prev, iceConnectionState: pc.iceConnectionState }));
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setConnectionStatus('connected');
         if (iceWatchdogTimerRef.current) {
@@ -456,6 +466,16 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         setConnectionStatus('reconnecting');
         triggerIceRestart();
       }
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log('[WebRTC] SIGNALING state:', pc.signalingState);
+      setDiagnostics(prev => ({ ...prev, signalingState: pc.signalingState }));
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log('[WebRTC] ICE gathering state:', pc.iceGatheringState);
+      setDiagnostics(prev => ({ ...prev, iceGatheringState: pc.iceGatheringState }));
     };
 
     // Watchdog timer: If ICE hasn't connected in 6 seconds, trigger fast ICE restart!
@@ -472,13 +492,14 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       pc.createOffer()
         .then(async (offer) => {
           if (pc.signalingState === 'closed') return;
+          console.log(`[WebRTC] Created SDP Offer (m=audio:${offer.sdp?.includes('m=audio')}, m=video:${offer.sdp?.includes('m=video')})`);
           await pc.setLocalDescription(offer);
           socket.emit('signal_offer', {
             roomId: matchData.roomId,
             to: matchData.peerSocketId,
             sdp: offer
           });
-          console.log('[WebRTC] Created and sent SDP Offer');
+          console.log('[WebRTC] Sent SDP Offer to peer', matchData.peerSocketId);
         })
         .catch(err => {
           console.error('[WebRTC] Failed to create offer:', err);
@@ -490,7 +511,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       const activePc = peerConnectionRef.current;
       if (!cand || !cand.candidate || !activePc || activePc.signalingState === 'closed') return;
       try {
-        await activePc.addIceCandidate(new RTCIceCandidate(cand));
+        await activePc.addIceCandidate(cand);
       } catch (err: any) {
         console.warn('[WebRTC] Note adding candidate:', err?.message || err);
       }
@@ -501,7 +522,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       const activePc = peerConnectionRef.current;
       if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId) return;
       try {
-        console.log('[WebRTC] Received SDP Offer from', data.from);
+        console.log(`[WebRTC] Received SDP Offer from ${data.from} (m=audio:${data.sdp?.sdp?.includes('m=audio')}, m=video:${data.sdp?.sdp?.includes('m=video')})`);
         if (activePc.signalingState !== 'stable') {
           console.warn('[WebRTC] Handling offer collision / glare in state:', activePc.signalingState);
           await activePc.setLocalDescription({ type: 'rollback' } as any).catch(() => {});
@@ -509,6 +530,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
         const answer = await activePc.createAnswer();
+        console.log(`[WebRTC] Created SDP Answer (m=audio:${answer.sdp?.includes('m=audio')}, m=video:${answer.sdp?.includes('m=video')})`);
         await activePc.setLocalDescription(answer);
 
         socket.emit('signal_answer', {
@@ -516,7 +538,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
           to: data.from || matchData.peerSocketId,
           sdp: answer
         });
-        console.log('[WebRTC] Created and sent SDP Answer');
+        console.log('[WebRTC] Sent SDP Answer to peer', data.from || matchData.peerSocketId);
 
         // Flush buffered ICE candidates safely
         while (iceCandidatesQueue.current.length > 0) {
@@ -534,7 +556,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       const activePc = peerConnectionRef.current;
       if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId) return;
       try {
-        console.log('[WebRTC] Received SDP Answer from', data.from);
+        console.log(`[WebRTC] Received SDP Answer from ${data.from} (m=audio:${data.sdp?.sdp?.includes('m=audio')}, m=video:${data.sdp?.sdp?.includes('m=video')})`);
         await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
         // Flush buffered ICE candidates safely
@@ -554,6 +576,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId || !data.candidate) return;
       if (!data.candidate.candidate) return; // skip empty candidate
 
+      console.log(`[WebRTC] REMOTE ICE candidate from ${data.from}: ${data.candidate.candidate.substring(0, 50)}...`);
       try {
         if (activePc.remoteDescription && activePc.remoteDescription.type) {
           await addIceCandidateSafe(data.candidate);
