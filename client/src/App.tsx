@@ -76,12 +76,12 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
   const [isLoginOpen, setIsLoginOpen] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
-  // Global user interaction listener to unblock audio autoplay on mobile Android/iOS
+  // Global user interaction listener to unblock audio/video autoplay on mobile Android/iOS
   useEffect(() => {
     const unlockAudio = () => {
-      document.querySelectorAll('video').forEach(vid => {
-        if (vid.srcObject && vid.paused) {
-          vid.play().catch(() => {});
+      document.querySelectorAll<HTMLMediaElement>('video, audio').forEach(mediaEl => {
+        if (mediaEl.srcObject && mediaEl.paused) {
+          mediaEl.play().catch(() => {});
         }
       });
     };

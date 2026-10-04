@@ -72,33 +72,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       audioEl.volume = 1.0;
     }
 
-    // Apply muted state to video element
-    const effectiveMute = shouldMuteAudio || isAudioRestricted;
-    videoEl.muted = effectiveMute;
-    if (!isLocal) {
-      videoEl.volume = 1.0;
+    // For remote stream, video element is always muted to prevent duplicate audio/echo and guarantee zero autoplay blocks.
+    // The dedicated audioEl handles remote voice cleanly.
+    videoEl.muted = isLocal ? true : true;
+    if (audioEl) {
+      audioEl.muted = shouldMuteAudio || isAudioRestricted;
+      audioEl.volume = 1.0;
     }
 
     const startPlayback = async () => {
       try {
         await videoEl.play();
         if (!isLocal && audioEl) {
-          audioEl.muted = shouldMuteAudio;
-          await audioEl.play().catch(() => {});
+          audioEl.muted = shouldMuteAudio || isAudioRestricted;
+          await audioEl.play().catch((err: any) => {
+            if (err?.name === 'NotAllowedError') {
+              setIsAudioRestricted(true);
+            }
+          });
         }
-        if (!shouldMuteAudio && isAudioRestricted) {
+        if (!shouldMuteAudio && isAudioRestricted && audioEl && !audioEl.paused) {
           setIsAudioRestricted(false);
         }
       } catch (err: any) {
         console.warn('[VideoPlayer] Playback policy:', err?.name, err?.message);
-        if (err?.name === 'NotAllowedError') {
-          // Autoplay restricted by browser: mute video element to keep video rendering
-          videoEl.muted = true;
-          setIsAudioRestricted(true);
-          videoEl.play().catch(() => {});
-        } else {
-          videoEl.play().catch(() => {});
-        }
+        videoEl.play().catch(() => {});
       }
     };
 
@@ -120,7 +118,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
 
   const handleUnmute = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const videoEl = videoRef.current;
     const audioEl = audioRef.current;
 
     if (audioEl) {
@@ -128,16 +125,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
       audioEl.volume = 1.0;
       audioEl.play().then(() => {
         setIsAudioRestricted(false);
-      }).catch(() => {});
-    }
-
-    if (videoEl) {
-      videoEl.muted = false;
-      videoEl.volume = 1.0;
-      videoEl.play().then(() => {
-        setIsAudioRestricted(false);
       }).catch((err) => {
-        console.warn('[VideoPlayer] Manual unmute rejected:', err);
+        console.warn('[VideoPlayer] Manual audio unmute rejected:', err);
       });
     }
   };
