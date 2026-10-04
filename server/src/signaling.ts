@@ -58,7 +58,14 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
 
     // WebRTC Signaling: Offer
     socket.on('signal_offer', (data: { roomId: string; to: string; sdp: any }) => {
-      const targetSocket = io.sockets.sockets.get(data.to);
+      let targetSocket = io.sockets.sockets.get(data.to);
+      if (!targetSocket && data.roomId) {
+        const room = store.getRoom(data.roomId);
+        if (room) {
+          const targetId = room.peerA === socket.id ? room.peerB : room.peerA;
+          if (targetId) targetSocket = io.sockets.sockets.get(targetId);
+        }
+      }
       if (targetSocket) {
         targetSocket.emit('signal_offer', {
           roomId: data.roomId,
@@ -70,7 +77,14 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
 
     // WebRTC Signaling: Answer
     socket.on('signal_answer', (data: { roomId: string; to: string; sdp: any }) => {
-      const targetSocket = io.sockets.sockets.get(data.to);
+      let targetSocket = io.sockets.sockets.get(data.to);
+      if (!targetSocket && data.roomId) {
+        const room = store.getRoom(data.roomId);
+        if (room) {
+          const targetId = room.peerA === socket.id ? room.peerB : room.peerA;
+          if (targetId) targetSocket = io.sockets.sockets.get(targetId);
+        }
+      }
       if (targetSocket) {
         targetSocket.emit('signal_answer', {
           roomId: data.roomId,
@@ -82,7 +96,14 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
 
     // WebRTC Signaling: ICE Candidate
     socket.on('signal_ice', (data: { roomId: string; to: string; candidate: any }) => {
-      const targetSocket = io.sockets.sockets.get(data.to);
+      let targetSocket = io.sockets.sockets.get(data.to);
+      if (!targetSocket && data.roomId) {
+        const room = store.getRoom(data.roomId);
+        if (room) {
+          const targetId = room.peerA === socket.id ? room.peerB : room.peerA;
+          if (targetId) targetSocket = io.sockets.sockets.get(targetId);
+        }
+      }
       if (targetSocket) {
         targetSocket.emit('signal_ice', {
           roomId: data.roomId,

@@ -55,6 +55,8 @@ interface MingleoLiveRoomProps {
   onlineCount?: number;
   activeChattingCount?: number;
   inQueueCount?: number;
+  isRemoteAudioMuted?: boolean;
+  isRemoteVideoDisabled?: boolean;
 }
 
 const ICEBREAKERS = [
@@ -99,6 +101,8 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   onlineCount = 1,
   activeChattingCount = 0,
   inQueueCount = 0,
+  isRemoteAudioMuted = false,
+  isRemoteVideoDisabled = false,
 }) => {
   const [inputText, setInputText] = useState<string>('');
   const [autoReroll, setAutoReroll] = useState<boolean>(false);
@@ -412,7 +416,9 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                 <VideoPlayer
                   stream={remoteStream}
                   label=""
-                  muteVideoElement={true}
+                  isRemoteMuted={isRemoteAudioMuted}
+                  isVideoOff={isRemoteVideoDisabled}
+                  muteVideoElement={false}
                   className="w-full h-full object-cover"
                 />
               ) : isSearching ? (

@@ -43,7 +43,9 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
   });
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const remoteMediaStreamRef = useRef<MediaStream>(new MediaStream());
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+  const iceWatchdogTimerRef = useRef<any>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const statsIntervalRef = useRef<any>(null);
   const prevStatsRef = useRef<{ timestamp: number; audioBytes: number; videoBytes: number }>({
@@ -218,6 +220,11 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
   // Cleanup WebRTC connection
   const cleanupConnection = useCallback(() => {
+    if (iceWatchdogTimerRef.current) {
+      clearTimeout(iceWatchdogTimerRef.current);
+      iceWatchdogTimerRef.current = null;
+    }
+
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
@@ -236,10 +243,12 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       peerConnectionRef.current.ontrack = null;
       peerConnectionRef.current.onconnectionstatechange = null;
       peerConnectionRef.current.oniceconnectionstatechange = null;
+      (peerConnectionRef.current as any).onicecandidateerror = null;
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
 
+    remoteMediaStreamRef.current = new MediaStream();
     iceCandidatesQueue.current = [];
     setRemoteStream(null);
     setIsRemoteAudioMuted(false);
@@ -276,79 +285,77 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     setConnectionStatus('connecting');
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
+    remoteMediaStreamRef.current = new MediaStream();
 
-    // 1. Audio track binding or receive-only transceiver
-    const audioTrack = localStream?.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !isAudioMuted;
+    // 1. Attach local tracks to peer connection
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        try {
+          if (track.kind === 'audio') track.enabled = !isAudioMuted;
+          if (track.kind === 'video') track.enabled = !isVideoDisabled;
+          pc.addTrack(track, localStream);
+          console.log(`[WebRTC] Attached local ${track.kind} track (${track.id})`);
+        } catch (e) {
+          console.warn(`[WebRTC] Note attaching ${track.kind} track:`, e);
+        }
+      });
+    }
+
+    // 2. Ensure bidirectional transceivers exist with direction 'sendrecv'
+    const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+    if (!audioSender) {
       try {
-        pc.addTrack(audioTrack, localStream!);
-        console.log(`[WebRTC] Attached local audio track (${audioTrack.id})`);
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
       } catch (e) {
-        console.warn('[WebRTC] Audio track attach warning:', e);
-      }
-    } else {
-      try {
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-      } catch (e) {
-        console.warn('[WebRTC] Audio transceiver warning:', e);
+        console.warn('[WebRTC] Audio transceiver note:', e);
       }
     }
 
-    // 2. Video track binding or receive-only transceiver
-    const videoTrack = localStream?.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !isVideoDisabled;
+    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (!videoSender) {
       try {
-        pc.addTrack(videoTrack, localStream!);
-        console.log(`[WebRTC] Attached local video track (${videoTrack.id})`);
+        pc.addTransceiver('video', { direction: 'sendrecv' });
       } catch (e) {
-        console.warn('[WebRTC] Video track attach warning:', e);
-      }
-    } else {
-      try {
-        pc.addTransceiver('video', { direction: 'recvonly' });
-      } catch (e) {
-        console.warn('[WebRTC] Video transceiver warning:', e);
+        console.warn('[WebRTC] Video transceiver note:', e);
       }
     }
 
-    // Handle remote track reception
+    // 3. Handle remote track reception into accumulator stream
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
       event.track.enabled = true;
 
-      const refreshRemoteStream = () => {
-        if (event.streams && event.streams[0]) {
-          const stream = event.streams[0];
-          stream.getAudioTracks().forEach(t => { t.enabled = true; });
-          stream.getVideoTracks().forEach(t => { t.enabled = true; });
-          // Always create a new MediaStream instance so React state change triggers component re-renders
-          setRemoteStream(new MediaStream(stream.getTracks()));
-        } else {
-          setRemoteStream(prev => {
-            const tracks = prev ? [...prev.getTracks(), event.track] : [event.track];
-            const unique = Array.from(new Map(tracks.map(t => [t.id, t])).values());
-            unique.forEach(t => { t.enabled = true; });
-            return new MediaStream(unique);
-          });
-        }
-      };
+      const current = remoteMediaStreamRef.current;
+      if (!current.getTracks().find(t => t.id === event.track.id)) {
+        current.addTrack(event.track);
+      }
+      if (event.streams && event.streams[0]) {
+        event.streams[0].getTracks().forEach(t => {
+          t.enabled = true;
+          if (!current.getTracks().find(x => x.id === t.id)) {
+            current.addTrack(t);
+          }
+        });
+      }
 
-      refreshRemoteStream();
+      setRemoteStream(new MediaStream(current.getTracks()));
+      setConnectionStatus('connected');
 
-      // Handle track unmuting (when first RTP packets arrive on mobile devices)
       event.track.onunmute = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track unmuted (media packets flowing)`);
-        refreshRemoteStream();
+        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
 
-      setConnectionStatus('connected');
+      event.track.onended = () => {
+        console.log(`[WebRTC] Remote ${event.track.kind} track ended`);
+        remoteMediaStreamRef.current.removeTrack(event.track);
+        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
+      };
     };
 
-    // Handle local ICE candidates
+    // 4. Handle local ICE candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && event.candidate.candidate) {
         socket.emit('signal_ice', {
           roomId: matchData.roomId,
           to: matchData.peerSocketId,
@@ -357,17 +364,56 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       }
     };
 
-    // Monitor connection states
+    (pc as any).onicecandidateerror = (event: any) => {
+      if (event.errorCode >= 300 && event.errorCode <= 699) {
+        console.warn(`[WebRTC] ICE candidate note: ${event.errorCode} ${event.errorText} (${event.url})`);
+      }
+    };
+
+    // Fast ICE restart helper
+    const triggerIceRestart = () => {
+      const activePc = peerConnectionRef.current;
+      if (!activePc || activePc.signalingState === 'closed') return;
+      if (matchData.isInitiator && typeof activePc.restartIce === 'function') {
+        try {
+          console.warn('[WebRTC] Fast ICE restart triggered via TURN relay...');
+          activePc.restartIce();
+          activePc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: true })
+            .then(async (offer) => {
+              if (activePc.signalingState === 'closed') return;
+              await activePc.setLocalDescription(offer);
+              socket.emit('signal_offer', {
+                roomId: matchData.roomId,
+                to: matchData.peerSocketId,
+                sdp: offer
+              });
+              console.log('[WebRTC] Sent ICE restart offer.');
+            })
+            .catch(err => {
+              console.error('[WebRTC] ICE restart offer error:', err);
+            });
+        } catch (err) {
+          console.error('[WebRTC] Error calling restartIce:', err);
+        }
+      }
+    };
+
+    // 5. Monitor connection states
     pc.onconnectionstatechange = () => {
       console.log('[WebRTC] Connection state:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setConnectionStatus('connected');
+        if (iceWatchdogTimerRef.current) {
+          clearTimeout(iceWatchdogTimerRef.current);
+          iceWatchdogTimerRef.current = null;
+        }
       } else if (pc.connectionState === 'connecting') {
         setConnectionStatus('connecting');
       } else if (pc.connectionState === 'disconnected') {
         setConnectionStatus('reconnecting');
       } else if (pc.connectionState === 'failed') {
-        setConnectionStatus('failed');
+        setConnectionStatus('reconnecting');
+        triggerIceRestart();
       }
     };
 
@@ -375,87 +421,85 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       console.log('[WebRTC] ICE Connection state:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setConnectionStatus('connected');
+        if (iceWatchdogTimerRef.current) {
+          clearTimeout(iceWatchdogTimerRef.current);
+          iceWatchdogTimerRef.current = null;
+        }
       } else if (pc.iceConnectionState === 'disconnected') {
         setConnectionStatus('reconnecting');
       } else if (pc.iceConnectionState === 'failed') {
-        console.warn('[WebRTC] ICE Connection failed, attempting ICE restart...');
         setConnectionStatus('reconnecting');
-        if (matchData.isInitiator && typeof pc.restartIce === 'function') {
-          try {
-            pc.restartIce();
-            pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: true })
-              .then(async (offer) => {
-                await pc.setLocalDescription(offer);
-                socket.emit('signal_offer', {
-                  roomId: matchData.roomId,
-                  to: matchData.peerSocketId,
-                  sdp: offer
-                });
-                console.log('[WebRTC] Sent ICE restart offer.');
-              })
-              .catch(err => {
-                console.error('[WebRTC] ICE restart offer error:', err);
-                setConnectionStatus('failed');
-              });
-          } catch (err) {
-            console.error('[WebRTC] Error calling restartIce:', err);
-            setConnectionStatus('failed');
-          }
-        } else {
-          setConnectionStatus('failed');
-        }
+        triggerIceRestart();
       }
     };
 
-    // If initiator, create offer
+    // Watchdog timer: If ICE hasn't connected in 6 seconds, trigger fast ICE restart!
+    iceWatchdogTimerRef.current = setTimeout(() => {
+      if (peerConnectionRef.current &&
+          (peerConnectionRef.current.iceConnectionState === 'checking' || peerConnectionRef.current.iceConnectionState === 'new')) {
+        console.warn('[WebRTC] Connection taking longer than 6s, auto-triggering ICE restart via TURN relay...');
+        triggerIceRestart();
+      }
+    }, 6000);
+
+    // 6. If initiator, create offer
     if (matchData.isInitiator) {
       pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true
       })
         .then(async (offer) => {
+          if (pc.signalingState === 'closed') return;
           await pc.setLocalDescription(offer);
           socket.emit('signal_offer', {
             roomId: matchData.roomId,
             to: matchData.peerSocketId,
             sdp: offer
           });
-          console.log('[WebRTC] Created and sent SDP Offer with audio/video media sections');
+          console.log('[WebRTC] Created and sent SDP Offer');
         })
         .catch(err => {
           console.error('[WebRTC] Failed to create offer:', err);
         });
     }
 
-    // Socket signaling listeners
-    const handleSignalOffer = async (data: { roomId: string; from: string; sdp: RTCSessionDescriptionInit }) => {
-      if (!peerConnectionRef.current || data.roomId !== matchData.roomId) return;
+    // Helper to add candidate safely
+    const addIceCandidateSafe = async (cand: any) => {
+      const activePc = peerConnectionRef.current;
+      if (!cand || !cand.candidate || !activePc || activePc.signalingState === 'closed') return;
       try {
-        console.log('[WebRTC] Received SDP Offer, setting remote description...');
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await activePc.addIceCandidate(new RTCIceCandidate(cand));
+      } catch (err: any) {
+        console.warn('[WebRTC] Note adding candidate:', err?.message || err);
+      }
+    };
 
-        const answer = await peerConnectionRef.current.createAnswer({
+    // 7. Socket signaling listeners
+    const handleSignalOffer = async (data: { roomId: string; from: string; sdp: RTCSessionDescriptionInit }) => {
+      const activePc = peerConnectionRef.current;
+      if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId) return;
+      try {
+        console.log('[WebRTC] Received SDP Offer from', data.from);
+        await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+
+        const answer = await activePc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true
         });
-        await peerConnectionRef.current.setLocalDescription(answer);
+        await activePc.setLocalDescription(answer);
 
         socket.emit('signal_answer', {
           roomId: matchData.roomId,
-          to: matchData.peerSocketId,
+          to: data.from || matchData.peerSocketId,
           sdp: answer
         });
-        console.log('[WebRTC] Created and sent SDP Answer with audio/video media sections');
+        console.log('[WebRTC] Created and sent SDP Answer');
 
-        // Flush buffered ICE candidates safely once local and remote descriptions are set
+        // Flush buffered ICE candidates safely
         while (iceCandidatesQueue.current.length > 0) {
           const cand = iceCandidatesQueue.current.shift();
           if (cand) {
-            try {
-              await peerConnectionRef.current.addIceCandidate(cand);
-            } catch (candErr) {
-              console.warn('[WebRTC] Buffered candidate note:', candErr);
-            }
+            await addIceCandidateSafe(cand);
           }
         }
       } catch (err) {
@@ -464,20 +508,17 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     };
 
     const handleSignalAnswer = async (data: { roomId: string; from: string; sdp: RTCSessionDescriptionInit }) => {
-      if (!peerConnectionRef.current || data.roomId !== matchData.roomId) return;
+      const activePc = peerConnectionRef.current;
+      if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId) return;
       try {
-        console.log('[WebRTC] Received SDP Answer, setting remote description...');
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        console.log('[WebRTC] Received SDP Answer from', data.from);
+        await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
         // Flush buffered ICE candidates safely
         while (iceCandidatesQueue.current.length > 0) {
           const cand = iceCandidatesQueue.current.shift();
           if (cand) {
-            try {
-              await peerConnectionRef.current.addIceCandidate(cand);
-            } catch (candErr) {
-              console.warn('[WebRTC] Buffered candidate note:', candErr);
-            }
+            await addIceCandidateSafe(cand);
           }
         }
       } catch (err) {
@@ -486,10 +527,13 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     };
 
     const handleSignalIce = async (data: { roomId: string; from: string; candidate: RTCIceCandidateInit }) => {
-      if (!peerConnectionRef.current || data.roomId !== matchData.roomId || !data.candidate) return;
+      const activePc = peerConnectionRef.current;
+      if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId || !data.candidate) return;
+      if (!data.candidate.candidate) return; // skip empty candidate
+
       try {
-        if (peerConnectionRef.current.remoteDescription && peerConnectionRef.current.remoteDescription.type) {
-          await peerConnectionRef.current.addIceCandidate(data.candidate);
+        if (activePc.remoteDescription && activePc.remoteDescription.type) {
+          await addIceCandidateSafe(data.candidate);
         } else {
           iceCandidatesQueue.current.push(data.candidate);
         }
@@ -563,6 +607,11 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         const unusedSender = senders.find(s => !s.track);
         if (unusedSender) {
           unusedSender.replaceTrack(track).catch(() => {});
+          const transceiver = pc.getTransceivers().find(t => t.sender === unusedSender);
+          if (transceiver && transceiver.direction !== 'sendrecv') {
+            transceiver.direction = 'sendrecv';
+            needsRenegotiation = true;
+          }
         } else {
           try {
             console.log(`[WebRTC] Adding new ${track.kind} track to peer connection`);

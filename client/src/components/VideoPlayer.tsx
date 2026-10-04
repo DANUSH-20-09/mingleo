@@ -67,8 +67,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
           })
           .catch((err) => {
             if (!shouldMuteVideo) {
-              console.warn('[VideoPlayer] Unmuted playback blocked by autoplay policy:', err.message);
+              console.warn('[VideoPlayer] Unmuted playback restricted by browser policy. Playing muted video while offering audio unmute:', err.message);
               setAutoplayBlocked(true);
+              videoEl.muted = true;
+              videoEl.play().catch(() => {});
             }
           });
       }

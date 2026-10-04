@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MingleoLiveRoom } from './components/MingleoLiveRoom';
 import { MingleoIntroSplash } from './components/MingleoIntroSplash';
 import { SettingsModal } from './components/SettingsModal';
@@ -52,6 +52,7 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     isAudioMuted,
     isVideoDisabled,
     isRemoteAudioMuted,
+    isRemoteVideoDisabled,
     isScreenSharing,
     isRemoteScreenSharing,
     isScreenShareSupported,
@@ -75,44 +76,14 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
   const [isLoginOpen, setIsLoginOpen] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
-  // Dedicated Remote Audio Management: ensures audio stream is always played without depending on video element mounting
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    const audioEl = remoteAudioRef.current;
-    if (!audioEl) return;
-
-    if (!remoteStream) {
-      audioEl.srcObject = null;
-      return;
-    }
-
-    const audioTracks = remoteStream.getAudioTracks();
-    audioTracks.forEach(track => {
-      track.enabled = !isRemoteAudioMuted;
-    });
-
-    if (audioEl.srcObject !== remoteStream) {
-      audioEl.srcObject = remoteStream;
-    }
-    audioEl.muted = isRemoteAudioMuted;
-    audioEl.volume = isRemoteAudioMuted ? 0 : 1.0;
-
-    const playPromise = audioEl.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        console.warn('Audio autoplay waiting for user interaction:', err);
-      });
-    }
-  }, [remoteStream, isRemoteAudioMuted]);
-
   // Global user interaction listener to unblock audio autoplay on mobile Android/iOS
   useEffect(() => {
     const unlockAudio = () => {
-      const audioEl = remoteAudioRef.current;
-      if (audioEl && audioEl.srcObject && audioEl.paused) {
-        audioEl.play().catch(() => {});
-      }
+      document.querySelectorAll('video').forEach(vid => {
+        if (vid.srcObject && vid.paused) {
+          vid.play().catch(() => {});
+        }
+      });
     };
     window.addEventListener('click', unlockAudio, { passive: true });
     window.addEventListener('touchstart', unlockAudio, { passive: true });
@@ -230,6 +201,8 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
         isConnected={isConnected}
         isAudioMuted={isAudioMuted}
         isVideoDisabled={isVideoDisabled}
+        isRemoteAudioMuted={isRemoteAudioMuted}
+        isRemoteVideoDisabled={isRemoteVideoDisabled}
         isScreenSharing={isScreenSharing}
         isRemoteScreenSharing={isRemoteScreenSharing}
         isScreenShareSupported={isScreenShareSupported}
@@ -253,15 +226,6 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
         onlineCount={onlineCount}
         activeChattingCount={activeChattingCount}
         inQueueCount={inQueueCount}
-      />
-
-      {/* Dedicated Audio Element for WebRTC Remote Stream Audio (kept in DOM layout tree so mobile browsers decode audio) */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-        aria-hidden="true"
       />
 
       {/* Floating Moderation Toast */}
