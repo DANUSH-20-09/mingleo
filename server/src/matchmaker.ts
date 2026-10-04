@@ -8,7 +8,6 @@ interface QueueEntry {
   username: string;
   language: SupportedLanguage;
   joinedAt: number;
-  wantsSimulation?: boolean;
 }
 
 export class Matchmaker {
@@ -39,8 +38,7 @@ export class Matchmaker {
     socket: Socket,
     guestId: string,
     username: string,
-    language: SupportedLanguage,
-    wantsSimulation: boolean = false
+    language: SupportedLanguage
   ): void {
     const session = store.getOrCreateSession(socket.id, guestId, username, language);
 
@@ -65,8 +63,7 @@ export class Matchmaker {
       guestId: session.guestId,
       username: session.username,
       language: language,
-      joinedAt: Date.now(),
-      wantsSimulation
+      joinedAt: Date.now()
     };
 
     if (!this.languageQueues.has(language)) {
@@ -298,7 +295,7 @@ export class Matchmaker {
       return;
     }
 
-    const room = store.createRoom(userA.socketId, userB.socketId, language, false);
+    const room = store.createRoom(userA.socketId, userB.socketId, language);
 
     console.log(
       `[Matchmaker] MATCH CREATED! Room: ${room.roomId} | Language: ${language} | PeerA: ${userA.username} <-> PeerB: ${userB.username}`
@@ -310,8 +307,7 @@ export class Matchmaker {
       peerSocketId: userB.socketId,
       peerName: userB.username,
       isInitiator: true,
-      language: language,
-      isSimulated: false
+      language: language
     });
 
     // Socket B will await offer and send answer
@@ -320,8 +316,7 @@ export class Matchmaker {
       peerSocketId: userA.socketId,
       peerName: userA.username,
       isInitiator: false,
-      language: language,
-      isSimulated: false
+      language: language
     });
 
     if (this.onCountUpdate) {

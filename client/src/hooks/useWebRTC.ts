@@ -12,7 +12,6 @@ interface UseWebRTCProps {
     peerName: string;
     isInitiator: boolean;
     language: string;
-    isSimulated?: boolean;
   } | null;
 }
 
@@ -586,7 +585,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
   // Real-time WebRTC Performance & Voice Communication Statistics (getStats)
   useEffect(() => {
-    if (connectionStatus !== 'connected' || matchData?.isSimulated) {
+    if (connectionStatus !== 'connected') {
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = null;

@@ -51,15 +51,14 @@ export class AppStore {
   }
 
   // Room management
-  public createRoom(peerA: string, peerB: string, language: any, isSimulated: boolean = false): ActiveRoom {
+  public createRoom(peerA: string, peerB: string, language: any): ActiveRoom {
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const room: ActiveRoom = {
       roomId,
       peerA,
       peerB,
       language,
-      startedAt: Date.now(),
-      isSimulated
+      startedAt: Date.now()
     };
     this.rooms.set(roomId, room);
     this.totalMatchesCount++;

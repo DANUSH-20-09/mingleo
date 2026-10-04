@@ -193,7 +193,7 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     } catch (err) {
       console.warn('Initial camera setup note:', err);
     }
-    startSearch(false);
+    startSearch();
   };
 
   const handleNextMatch = async () => {

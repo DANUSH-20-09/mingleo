@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sparkles, Bot } from 'lucide-react';
+import { X, Sparkles } from 'lucide-react';
 import { SupportedLanguage } from '../types';
 import { SUPPORTED_LANGUAGES } from '../config/constants';
 
 interface SearchingScreenProps {
   selectedLanguage: SupportedLanguage;
   onCancel: () => void;
-  onInstantSimulatePartner: () => void;
 }
 
 const SEARCH_TIPS = [
@@ -20,8 +19,7 @@ const SEARCH_TIPS = [
 
 export const SearchingScreen: React.FC<SearchingScreenProps> = ({
   selectedLanguage,
-  onCancel,
-  onInstantSimulatePartner
+  onCancel
 }) => {
   const [tipIndex, setTipIndex] = useState<number>(0);
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === selectedLanguage) || SUPPORTED_LANGUAGES[0];
@@ -94,23 +92,13 @@ export const SearchingScreen: React.FC<SearchingScreenProps> = ({
       </motion.div>
 
       {/* Action Buttons */}
-      <div className="mt-8 flex flex-col sm:flex-row items-center gap-3 w-full max-w-xs">
+      <div className="mt-8 flex items-center justify-center w-full max-w-xs">
         <button
           onClick={onCancel}
           className="w-full py-3 px-5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-bold transition-colors flex items-center justify-center gap-2"
         >
           <X className="w-4 h-4 text-rose-400" />
           <span>Cancel Search</span>
-        </button>
-
-        {/* Solo Developer / Reviewer instant simulator */}
-        <button
-          onClick={onInstantSimulatePartner}
-          className="w-full py-3 px-5 rounded-xl bg-brand-purple/20 border border-brand-purple/40 text-brand-purple hover:bg-brand-purple/30 text-xs font-bold transition-all flex items-center justify-center gap-2"
-          title="Connect with interactive simulated partner in Dev Mode"
-        >
-          <Bot className="w-4 h-4 text-brand-cyan" />
-          <span>Simulated Partner (Dev)</span>
         </button>
       </div>
     </div>

@@ -26,7 +26,6 @@ import {
 import { VideoPlayer } from './VideoPlayer';
 import { TextChatOverlay } from './TextChatOverlay';
 import { ReactionBursts } from './ReactionBursts';
-import { DevModeBanner } from './DevModeBanner';
 import { ReportModal } from './ReportModal';
 import { BlockModal } from './BlockModal';
 import { useSocket } from '../context/SocketContext';
@@ -213,9 +212,6 @@ export const VideoChatScreen: React.FC<VideoChatScreenProps> = ({
 
   return (
     <div className="relative w-full h-[calc(100vh-65px)] flex flex-col justify-between bg-dark-950 overflow-hidden select-none">
-      {/* Dev Mode Banner if simulated peer */}
-      {matchData?.isSimulated && <DevModeBanner isSimulated={true} />}
-
       {/* Floating Reaction Bursts */}
       <ReactionBursts reaction={lastReaction} />
 

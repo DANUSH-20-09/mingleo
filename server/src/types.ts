@@ -64,7 +64,6 @@ export interface ActiveRoom {
   peerB: string; // socketId
   language: SupportedLanguage;
   startedAt: number;
-  isSimulated?: boolean;
 }
 
 export interface ModerationResult {

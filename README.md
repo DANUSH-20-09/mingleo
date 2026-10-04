@@ -38,8 +38,8 @@ VibeConnect is a modern, fully functional real-time random video chat applicatio
    - Dynamic device selection (switch front/back cameras, external USB microphones).
    - Age 18+ and Community Safety Guidelines verification.
 
-5. **Dev Mode & Solo Interactive Simulation**
-   - Includes a development mode interactive simulated partner stream (synthesized canvas companion + Web Audio tone) so solo testers/reviewers can test all WebRTC controls, skip, chat, reactions, and toxic moderation without needing 2 devices!
+5. **100% Real Human Matchmaking**
+   - Zero bots, zero synthetic users, and zero automated loops. Connections are strictly 1-to-1 between real human beings joining the platform.
 
 ---
 
@@ -111,7 +111,6 @@ npm run dev
 3. In Window 2: Select **Telugu** and click **Start Video Chat**.
 4. Both users will be paired strictly together!
 5. Try selecting **Hindi** in Window 1 and **Telugu** in Window 2: the matchmaker will keep each in their respective strict queues and will **never** cross-match them.
-6. **Solo Testing Mode:** On the Searching screen, click **"Simulated Partner (Dev)"** to instantly connect to a virtual companion stream.
 
 ---
 

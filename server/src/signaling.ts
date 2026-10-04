@@ -40,14 +40,12 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
       guestId: string;
       username: string;
       language: SupportedLanguage;
-      wantsSimulation?: boolean;
     }) => {
       matchmaker.enqueueUser(
         socket,
         data.guestId,
         data.username,
-        data.language,
-        !!data.wantsSimulation
+        data.language
       );
     });
 

@@ -10,7 +10,6 @@ interface MatchData {
   peerName: string;
   isInitiator: boolean;
   language: SupportedLanguage;
-  isSimulated?: boolean;
 }
 
 interface SocketContextType {
@@ -25,7 +24,7 @@ interface SocketContextType {
   matchData: MatchData | null;
   messages: ChatMessage[];
   lastReaction: { emoji: string; id: string } | null;
-  startSearch: (wantsSimulation?: boolean) => void;
+  startSearch: () => void;
   cancelSearch: () => void;
   nextMatch: (requeue?: boolean) => void;
   endCall: () => void;
