@@ -34,6 +34,9 @@ interface SocketContextType {
   reportCurrentPartner: (category: string, details?: string) => void;
   blockCurrentPartner: () => void;
   onlineStats: { activeSessionsCount: number; activeRoomsCount: number } | null;
+  onlineCount: number;
+  activeChattingCount: number;
+  inQueueCount: number;
   serverUrl: string;
   setServerUrl: (url: string) => void;
 }
@@ -72,6 +75,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [lastReaction, setLastReaction] = useState<{ emoji: string; id: string } | null>(null);
   const [onlineStats, setOnlineStats] = useState<{ activeSessionsCount: number; activeRoomsCount: number } | null>(null);
+  const [onlineCount, setOnlineCount] = useState<number>(1);
+  const [activeChattingCount, setActiveChattingCount] = useState<number>(0);
+  const [inQueueCount, setInQueueCount] = useState<number>(0);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -136,7 +142,27 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnected(false);
       setIsSearching(false);
       setMatchData(null);
+      setOnlineCount(1);
+      setActiveChattingCount(0);
+      setInQueueCount(0);
       console.log('[Socket] Disconnected from signaling server.');
+    });
+
+    socketInstance.on('user_count_update', (data: {
+      totalOnline?: number;
+      activeChatting?: number;
+      activeRooms?: number;
+      inQueue?: number;
+    }) => {
+      if (typeof data.totalOnline === 'number') {
+        setOnlineCount(Math.max(1, data.totalOnline));
+      }
+      if (typeof data.activeChatting === 'number') {
+        setActiveChattingCount(data.activeChatting);
+      }
+      if (typeof data.inQueue === 'number') {
+        setInQueueCount(data.inQueue);
+      }
     });
 
     socketInstance.on('reconnect', () => {
@@ -203,6 +229,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .then(data => {
           if (data.stats) {
             setOnlineStats(data.stats);
+            if (typeof data.stats.totalOnline === 'number') {
+              setOnlineCount(Math.max(1, data.stats.totalOnline));
+            }
+            if (typeof data.stats.activeChatting === 'number') {
+              setActiveChattingCount(data.stats.activeChatting);
+            }
+            if (typeof data.stats.inQueue === 'number') {
+              setInQueueCount(data.stats.inQueue);
+            }
           }
         })
         .catch(() => {});
@@ -328,6 +363,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         reportCurrentPartner,
         blockCurrentPartner,
         onlineStats,
+        onlineCount,
+        activeChattingCount,
+        inQueueCount,
         serverUrl: serverUrlState,
         setServerUrl
       }}

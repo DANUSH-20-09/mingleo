@@ -61,8 +61,14 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Real-time matchmaking statistics
 app.get('/api/stats', (_req: Request, res: Response) => {
+  const baseStats = store.getStats();
   res.json({
-    stats: store.getStats(),
+    stats: {
+      ...baseStats,
+      totalOnline: io.sockets.sockets.size,
+      activeChatting: baseStats.activeRoomsCount * 2,
+      inQueue: matchmaker.getTotalQueueCount()
+    },
     queueBreakdown: matchmaker.getQueueStats()
   });
 });

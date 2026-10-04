@@ -16,10 +16,23 @@ export class Matchmaker {
   // STRICT QUEUES: Map of language -> array of waiting users
   private languageQueues: Map<SupportedLanguage, QueueEntry[]> = new Map();
   private processingInterval: NodeJS.Timeout | null = null;
+  private onCountUpdate?: () => void;
 
   constructor(io: Server) {
     this.io = io;
     this.startMatchingLoop();
+  }
+
+  public setOnCountUpdate(cb: () => void): void {
+    this.onCountUpdate = cb;
+  }
+
+  public getTotalQueueCount(): number {
+    let count = 0;
+    for (const queue of this.languageQueues.values()) {
+      count += queue.length;
+    }
+    return count;
   }
 
   public enqueueUser(
@@ -72,6 +85,10 @@ export class Matchmaker {
       queueSize: queue.length
     });
 
+    if (this.onCountUpdate) {
+      this.onCountUpdate();
+    }
+
     // Try an immediate match cycle
     this.processQueueForLanguage(language);
   }
@@ -89,6 +106,9 @@ export class Matchmaker {
       session.state = 'idle';
       session.joinedQueueAt = undefined;
     }
+    if (this.onCountUpdate) {
+      this.onCountUpdate();
+    }
   }
 
   public handleDisconnect(socketId: string): void {
@@ -105,6 +125,9 @@ export class Matchmaker {
       }
     }
     store.removeSession(socketId);
+    if (this.onCountUpdate) {
+      this.onCountUpdate();
+    }
   }
 
   private startMatchingLoop(): void {
@@ -117,6 +140,60 @@ export class Matchmaker {
   private processAllQueues(): void {
     for (const lang of this.languageQueues.keys()) {
       this.processQueueForLanguage(lang);
+    }
+    this.processFlexibleMatches();
+  }
+
+  /**
+   * Flexible matching fallback:
+   * Users who selected 'global' or who waited > 6 seconds without a same-language match
+   * will be paired with another waiting eligible user so nobody gets left waiting alone.
+   */
+  private processFlexibleMatches(): void {
+    const allEntries: QueueEntry[] = [];
+    for (const queue of this.languageQueues.values()) {
+      for (const entry of queue) {
+        const socket = this.io.sockets.sockets.get(entry.socketId);
+        const session = store.getSession(entry.socketId);
+        if (socket && socket.connected && session && session.state === 'in_queue') {
+          allEntries.push(entry);
+        }
+      }
+    }
+
+    if (allEntries.length < 2) return;
+
+    const now = Date.now();
+    for (let i = 0; i < allEntries.length; i++) {
+      const userA = allEntries[i];
+      const sessionA = store.getSession(userA.socketId);
+      if (!sessionA || sessionA.state !== 'in_queue') continue;
+
+      const waitA = now - userA.joinedAt;
+      const isAEligible = userA.language === 'global' || waitA > 6000;
+
+      for (let j = i + 1; j < allEntries.length; j++) {
+        const userB = allEntries[j];
+        const sessionB = store.getSession(userB.socketId);
+        if (!sessionB || sessionB.state !== 'in_queue') continue;
+
+        const waitB = now - userB.joinedAt;
+        const isBEligible = userB.language === 'global' || waitB > 6000;
+
+        // If neither is global and neither has waited > 6s, allow them to wait for same-language match
+        if (!isAEligible && !isBEligible) continue;
+
+        if (userA.socketId === userB.socketId || userA.guestId === userB.guestId) continue;
+        if (store.isBlocked(userA.socketId, userB.socketId)) continue;
+
+        // Remove both from queue
+        this.dequeueUser(userA.socketId);
+        this.dequeueUser(userB.socketId);
+
+        const matchedLang = userA.language !== 'global' ? userA.language : userB.language;
+        this.connectPair(userA, userB, matchedLang);
+        break;
+      }
     }
   }
 
@@ -247,6 +324,10 @@ export class Matchmaker {
       language: language,
       isSimulated: false
     });
+
+    if (this.onCountUpdate) {
+      this.onCountUpdate();
+    }
   }
 
 

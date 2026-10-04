@@ -52,6 +52,9 @@ interface MingleoLiveRoomProps {
   onOpenGuidelines?: () => void;
   onOpenAbout?: () => void;
   isSocketConnected?: boolean;
+  onlineCount?: number;
+  activeChattingCount?: number;
+  inQueueCount?: number;
 }
 
 const ICEBREAKERS = [
@@ -93,28 +96,19 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
   onOpenGuidelines,
   onOpenAbout,
   isSocketConnected: _isSocketConnected = true,
+  onlineCount = 1,
+  activeChattingCount = 0,
+  inQueueCount = 0,
 }) => {
   const [inputText, setInputText] = useState<string>('');
-  const [autoReroll, setAutoReroll] = useState<boolean>(true);
+  const [autoReroll, setAutoReroll] = useState<boolean>(false);
   const [isLangOpen, setIsLangOpen] = useState<boolean>(false);
   const [hasDisconnected, setHasDisconnected] = useState<boolean>(false);
   const [localWarning, setLocalWarning] = useState<string | null>(null);
   const [isFlashActive, setIsFlashActive] = useState<boolean>(false);
 
-  // Real-time fluctuating online strangers count
-  const [onlineStrangersCount, setOnlineStrangersCount] = useState<number>(() => {
-    return 4850 + Math.floor(Math.random() * 120);
-  });
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setOnlineStrangersCount((prev) => {
-        const delta = Math.floor(Math.random() * 7) - 3;
-        return Math.max(4600, prev + delta);
-      });
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+  const wasConnectedRef = useRef<boolean>(false);
+  const userExitedCallRef = useRef<boolean>(false);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -128,20 +122,33 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
     chatScrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isConnected, isSearching, hasDisconnected]);
 
-  // Track disconnection transitions
+  // Track disconnection transitions cleanly: only trigger if actively in a call and partner leaves
   useEffect(() => {
     if (isConnected) {
+      wasConnectedRef.current = true;
+      userExitedCallRef.current = false;
       setHasDisconnected(false);
-    } else if (!isSearching && !isConnected) {
+    } else if (wasConnectedRef.current && !userExitedCallRef.current && !isSearching) {
       setHasDisconnected(true);
+      wasConnectedRef.current = false;
       if (autoReroll) {
         const timer = setTimeout(() => {
           onNext();
-        }, 1200);
+        }, 1500);
         return () => clearTimeout(timer);
       }
+    } else {
+      setHasDisconnected(false);
     }
   }, [isConnected, isSearching, autoReroll, onNext]);
+
+  // Clean Exit handler: user explicitly chooses to stop call, preventing auto-reroll
+  const handleExitCall = () => {
+    userExitedCallRef.current = true;
+    wasConnectedRef.current = false;
+    setHasDisconnected(false);
+    onEndCall();
+  };
 
   // Global Keyboard shortcuts: Esc for Skip to next stranger, M for mute, V for cam
   useEffect(() => {
@@ -281,15 +288,20 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
           <MingleoLogo size="md" />
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-bold text-xs shadow-sm"
-            title="Real-time strangers online on Mingleo"
+            title={`Real-Time Server Status: ${onlineCount} online, ${activeChattingCount} chatting, ${inQueueCount} in queue`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="font-mono text-emerald-300 font-black tracking-tight">
-              {onlineStrangersCount.toLocaleString()}+
+            <span className="font-mono text-emerald-300 font-black tracking-tight text-xs sm:text-sm">
+              {onlineCount}
             </span>
             <span className="text-[11px] text-emerald-200/90 font-semibold hidden xs:inline sm:inline">
-              Strangers Online
+              {onlineCount === 1 ? 'Stranger Online' : 'Strangers Online'}
             </span>
+            {activeChattingCount > 0 && (
+              <span className="text-[10px] text-cyan-300 font-medium ml-1 hidden md:inline px-1.5 py-0.5 rounded-full bg-cyan-950/60 border border-cyan-800/50">
+                {activeChattingCount} chatting
+              </span>
+            )}
           </div>
         </div>
 
@@ -420,7 +432,7 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                     </p>
                   </div>
                   <button
-                    onClick={onEndCall}
+                    onClick={handleExitCall}
                     className="px-4 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors shadow-sm"
                   >
                     Cancel Search
@@ -515,7 +527,7 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
             <div className="flex items-center gap-2">
               {/* Exit Button: Cleanly stops/exits the video call and returns to lobby */}
               <button
-                onClick={onEndCall}
+                onClick={handleExitCall}
                 className="px-3.5 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-100 border border-rose-500/40 hover:border-rose-400/60 shadow-md active:scale-95 transition-all cursor-pointer"
                 title="Stop and Exit the Video Call"
               >

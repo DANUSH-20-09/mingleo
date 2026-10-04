@@ -36,7 +36,10 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     reportCurrentPartner,
     socket,
     guestId,
-    isConnected: isSocketConnected
+    isConnected: isSocketConnected,
+    onlineCount,
+    activeChattingCount,
+    inQueueCount,
   } = useSocket();
 
   const { activeWarning, clearWarning } = useSafety();
@@ -231,6 +234,9 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
         onOpenGuidelines={() => setIsGuidelinesOpen(true)}
         onOpenAbout={() => setIsAboutOpen(true)}
         isSocketConnected={isSocketConnected}
+        onlineCount={onlineCount}
+        activeChattingCount={activeChattingCount}
+        inQueueCount={inQueueCount}
       />
 
       {/* Dedicated Hidden Audio Element for WebRTC Remote Stream Audio */}

@@ -4,14 +4,35 @@ import { store } from './store';
 import { analyzeTextContent } from './moderation';
 import { SupportedLanguage } from './types';
 
+export function broadcastUserCounts(io: Server, matchmaker?: Matchmaker) {
+  const stats = store.getStats();
+  const totalOnline = io.sockets.sockets.size;
+  const activeChatting = stats.activeRoomsCount * 2;
+  const inQueue = matchmaker ? matchmaker.getTotalQueueCount() : 0;
+  io.emit('user_count_update', {
+    totalOnline,
+    activeChatting,
+    activeRooms: stats.activeRoomsCount,
+    inQueue
+  });
+}
+
 export function setupSignaling(io: Server, matchmaker: Matchmaker) {
+  const notifyCounts = () => broadcastUserCounts(io, matchmaker);
+  matchmaker.setOnCountUpdate(notifyCounts);
+
+  // Periodic background heartbeat sync every 3 seconds
+  setInterval(notifyCounts, 3000);
+
   io.on('connection', (socket: Socket) => {
     console.log(`[Socket] User connected: ${socket.id}`);
+    notifyCounts();
 
     // Register / Initial handshake
     socket.on('register', (data: { guestId: string; username: string; language: SupportedLanguage }) => {
       store.getOrCreateSession(socket.id, data.guestId, data.username, data.language);
       socket.emit('registered', { socketId: socket.id });
+      notifyCounts();
     });
 
     // Enqueue for strict matching
@@ -34,6 +55,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
     socket.on('leave_queue', () => {
       matchmaker.dequeueUser(socket.id);
       socket.emit('queue_left');
+      notifyCounts();
     });
 
     // WebRTC Signaling: Offer
@@ -186,6 +208,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
           matchmaker.enqueueUser(socket, session.guestId, session.username, session.language);
         }
       }
+      notifyCounts();
     });
 
     // End call
@@ -211,6 +234,7 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
         session.partnerSocketId = undefined;
         session.state = 'idle';
       }
+      notifyCounts();
     });
 
     // Report user
@@ -263,6 +287,8 @@ export function setupSignaling(io: Server, matchmaker: Matchmaker) {
     socket.on('disconnect', () => {
       console.log(`[Socket] User disconnected: ${socket.id}`);
       matchmaker.handleDisconnect(socket.id);
+      notifyCounts();
+      setTimeout(notifyCounts, 100);
     });
   });
 }
