@@ -43,6 +43,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
   });
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(localStream);
   const remoteMediaStreamRef = useRef<MediaStream>(new MediaStream());
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
   const iceWatchdogTimerRef = useRef<any>(null);
@@ -53,6 +54,10 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     audioBytes: 0,
     videoBytes: 0,
   });
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
 
   const isScreenShareSupported = typeof navigator !== 'undefined' &&
     !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
@@ -288,12 +293,13 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     remoteMediaStreamRef.current = new MediaStream();
 
     // 1. Attach local tracks to peer connection
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
+    const activeLocalStream = localStream || localStreamRef.current;
+    if (activeLocalStream) {
+      activeLocalStream.getTracks().forEach(track => {
         try {
           if (track.kind === 'audio') track.enabled = !isAudioMuted;
           if (track.kind === 'video') track.enabled = !isVideoDisabled;
-          pc.addTrack(track, localStream);
+          pc.addTrack(track, activeLocalStream);
           console.log(`[WebRTC] Attached local ${track.kind} track (${track.id})`);
         } catch (e) {
           console.warn(`[WebRTC] Note attaching ${track.kind} track:`, e);
@@ -322,55 +328,53 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
     // Prioritize VP8 codec across video transceivers for universal Android <-> Mac / iOS hardware compatibility
     try {
-      if (typeof RTCRtpSender.getCapabilities === 'function') {
-        const videoCaps = RTCRtpSender.getCapabilities('video');
-        if (videoCaps && videoCaps.codecs) {
-          const vp8Codecs = videoCaps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/vp8');
-          const otherCodecs = videoCaps.codecs.filter(c => c.mimeType.toLowerCase() !== 'video/vp8');
-          const prioritizedCodecs = [...vp8Codecs, ...otherCodecs];
-          pc.getTransceivers().forEach(tr => {
-            if (tr.receiver.track.kind === 'video' && typeof tr.setCodecPreferences === 'function') {
-              try {
-                tr.setCodecPreferences(prioritizedCodecs);
-              } catch (_) {}
-            }
-          });
-        }
+      const getCaps = (typeof RTCRtpReceiver !== 'undefined' && typeof RTCRtpReceiver.getCapabilities === 'function')
+        ? RTCRtpReceiver.getCapabilities('video')
+        : ((typeof RTCRtpSender !== 'undefined' && typeof RTCRtpSender.getCapabilities === 'function') ? RTCRtpSender.getCapabilities('video') : null);
+      if (getCaps && getCaps.codecs && getCaps.codecs.length > 0) {
+        const vp8Codecs = getCaps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/vp8');
+        const otherCodecs = getCaps.codecs.filter(c => c.mimeType.toLowerCase() !== 'video/vp8');
+        const prioritizedCodecs = [...vp8Codecs, ...otherCodecs];
+        pc.getTransceivers().forEach(tr => {
+          if (tr.receiver && tr.receiver.track && tr.receiver.track.kind === 'video' && typeof tr.setCodecPreferences === 'function') {
+            try {
+              tr.setCodecPreferences(prioritizedCodecs);
+            } catch (_) {}
+          }
+        });
       }
     } catch (e) {
       console.warn('[WebRTC] Codec preferences note:', e);
     }
 
-    // 3. Handle remote track reception into accumulator stream
+    // 3. Handle remote track reception into direct native stream
     pc.ontrack = (event) => {
       console.log(`[WebRTC] Received remote stream track: ${event.track.kind} (id: ${event.track.id}, enabled: ${event.track.enabled})`);
       event.track.enabled = true;
 
-      const current = remoteMediaStreamRef.current;
-      if (!current.getTracks().find(t => t.id === event.track.id)) {
-        current.addTrack(event.track);
-      }
+      let targetStream: MediaStream;
       if (event.streams && event.streams[0]) {
-        event.streams[0].getTracks().forEach(t => {
-          t.enabled = true;
-          if (!current.getTracks().find(x => x.id === t.id)) {
-            current.addTrack(t);
-          }
-        });
+        targetStream = event.streams[0];
+        targetStream.getTracks().forEach(t => { t.enabled = true; });
+        remoteMediaStreamRef.current = targetStream;
+      } else {
+        const current = remoteMediaStreamRef.current;
+        if (!current.getTracks().some(t => t.id === event.track.id)) {
+          current.addTrack(event.track);
+        }
+        targetStream = current;
       }
 
-      setRemoteStream(new MediaStream(current.getTracks()));
+      setRemoteStream(targetStream);
       setConnectionStatus('connected');
 
       event.track.onunmute = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track unmuted (media packets flowing)`);
-        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
+        setRemoteStream(targetStream);
       };
 
       event.track.onended = () => {
         console.log(`[WebRTC] Remote ${event.track.kind} track ended`);
-        remoteMediaStreamRef.current.removeTrack(event.track);
-        setRemoteStream(new MediaStream(remoteMediaStreamRef.current.getTracks()));
       };
     };
 
@@ -501,6 +505,10 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       if (!activePc || activePc.signalingState === 'closed' || data.roomId !== matchData.roomId) return;
       try {
         console.log('[WebRTC] Received SDP Offer from', data.from);
+        if (activePc.signalingState !== 'stable') {
+          console.warn('[WebRTC] Handling offer collision / glare in state:', activePc.signalingState);
+          await activePc.setLocalDescription({ type: 'rollback' } as any).catch(() => {});
+        }
         await activePc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
         const answer = await activePc.createAnswer({
@@ -616,6 +624,9 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       if (track.kind === 'audio') {
         track.enabled = !isAudioMuted;
       }
+      if (track.kind === 'video') {
+        track.enabled = !isVideoDisabled;
+      }
       const sender = senders.find(s => s.track && s.track.kind === track.kind);
       if (sender) {
         if (sender.track?.id !== track.id) {
@@ -627,12 +638,13 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
       } else {
         const unusedSender = senders.find(s => !s.track);
         if (unusedSender) {
+          console.log(`[WebRTC] Assigning ${track.kind} track to unused sender`);
           unusedSender.replaceTrack(track).catch(() => {});
           const transceiver = pc.getTransceivers().find(t => t.sender === unusedSender);
-          if (transceiver && transceiver.direction !== 'sendrecv') {
+          if (transceiver) {
             transceiver.direction = 'sendrecv';
-            needsRenegotiation = true;
           }
+          needsRenegotiation = true;
         } else {
           try {
             console.log(`[WebRTC] Adding new ${track.kind} track to peer connection`);
@@ -647,6 +659,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
 
     if (needsRenegotiation && socket && pc.signalingState === 'stable') {
       pc.createOffer().then(async (offer) => {
+        if (pc.signalingState !== 'stable') return;
         await pc.setLocalDescription(offer);
         socket.emit('signal_offer', {
           roomId: matchData.roomId,
@@ -658,7 +671,7 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         console.warn('[WebRTC] Dynamic track renegotiation error:', err);
       });
     }
-  }, [localStream, matchData, isAudioMuted, socket]);
+  }, [localStream, matchData, isAudioMuted, isVideoDisabled, socket]);
 
   // Real-time WebRTC Performance & Voice Communication Statistics (getStats)
   useEffect(() => {

@@ -33,6 +33,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     return !!stream && stream.getVideoTracks().some(t => t.readyState !== 'ended');
   });
 
+  // Local audio is always muted to prevent echo. Remote audio plays unless muted or restricted by browser.
   const shouldMuteAudio = isLocal || isMuted || isRemoteMuted || muteVideoElement;
 
   useEffect(() => {
@@ -53,36 +54,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
 
     checkVideo();
 
-    // Assign stream to video element
     if (videoEl.srcObject !== stream) {
       videoEl.srcObject = stream;
     }
     videoEl.autoplay = true;
     videoEl.playsInline = true;
 
-    // Start with muted to guarantee instant playback without browser autoplay policy rejection
-    videoEl.muted = shouldMuteAudio || isAudioRestricted;
+    // Apply muted state
+    const effectiveMute = shouldMuteAudio || isAudioRestricted;
+    videoEl.muted = effectiveMute;
+    if (!isLocal) {
+      videoEl.volume = 1.0;
+    }
 
     const startPlayback = async () => {
       try {
         await videoEl.play();
-        // If audio should be unmuted and not already restricted, attempt unmuting
-        if (!shouldMuteAudio && !isAudioRestricted) {
+        // If unmuted playback succeeded and was previously marked restricted, lift restriction
+        if (!shouldMuteAudio && isAudioRestricted) {
           videoEl.muted = false;
-          videoEl.play().catch(() => {
-            // Unmuted playback rejected by browser: revert to muted and show floating unmute pill
-            videoEl.muted = true;
-            setIsAudioRestricted(true);
-            videoEl.play().catch(() => {});
-          });
+          setIsAudioRestricted(false);
         }
       } catch (err: any) {
-        // Fallback: ensure video plays muted so video frames flow immediately
-        videoEl.muted = true;
-        if (!shouldMuteAudio) {
+        console.warn('[VideoPlayer] Play call error:', err?.name, err?.message);
+        if (err?.name === 'NotAllowedError') {
+          // Autoplay restricted: mute and play so video continues, show unmute pill
+          videoEl.muted = true;
           setIsAudioRestricted(true);
+          videoEl.play().catch(() => {});
+        } else {
+          videoEl.play().catch(() => {});
         }
-        videoEl.play().catch(() => {});
       }
     };
 
@@ -102,33 +104,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({
     stream.addEventListener('removetrack', handleTrackChange);
 
     stream.getVideoTracks().forEach(t => {
-      t.addEventListener('unmute', checkVideo);
+      t.addEventListener('unmute', () => {
+        checkVideo();
+        startPlayback();
+      });
       t.addEventListener('mute', checkVideo);
     });
 
     return () => {
       stream.removeEventListener('addtrack', handleTrackChange);
       stream.removeEventListener('removetrack', handleTrackChange);
-      stream.getVideoTracks().forEach(t => {
-        t.removeEventListener('unmute', checkVideo);
-        t.removeEventListener('mute', checkVideo);
-      });
     };
-  }, [stream, shouldMuteAudio]);
+  }, [stream, shouldMuteAudio, isAudioRestricted]);
 
   const handleUnmute = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const videoEl = videoRef.current;
     if (videoEl) {
       videoEl.muted = false;
-      videoEl.play()
-        .then(() => {
-          setIsAudioRestricted(false);
-        })
-        .catch(() => {
-          videoEl.muted = true;
-          videoEl.play().catch(() => {});
-        });
+      videoEl.volume = 1.0;
+      videoEl.play().then(() => {
+        setIsAudioRestricted(false);
+      }).catch((err) => {
+        console.warn('[VideoPlayer] Manual unmute rejected:', err);
+        videoEl.muted = true;
+        setIsAudioRestricted(true);
+      });
     }
   };
 

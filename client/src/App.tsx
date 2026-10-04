@@ -156,24 +156,34 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
     toggleAudio();
   };
 
-  const handleStartVideoChat = async () => {
-    try {
-      if (!localStream) {
-        await initializeMedia();
+  const ensureMediaReady = async (): Promise<boolean> => {
+    let stream = localStream;
+    const hasLiveVideo = stream?.getVideoTracks().some(t => t.readyState === 'live');
+    const hasLiveAudio = stream?.getAudioTracks().some(t => t.readyState === 'live');
+    if (!stream || !hasLiveVideo || !hasLiveAudio) {
+      try {
+        stream = await initializeMedia();
+      } catch (err) {
+        console.error('Error initializing camera/mic:', err);
       }
-    } catch (err) {
-      console.warn('Initial camera setup note:', err);
+    }
+    return !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+  };
+
+  const handleStartVideoChat = async () => {
+    const isReady = await ensureMediaReady();
+    if (!isReady) {
+      alert('Camera and microphone access is required for video chat. Please allow browser permissions and try again.');
+      return;
     }
     startSearch();
   };
 
   const handleNextMatch = async () => {
-    try {
-      if (!localStream) {
-        await initializeMedia();
-      }
-    } catch (err) {
-      console.warn('Initial camera setup note:', err);
+    const isReady = await ensureMediaReady();
+    if (!isReady) {
+      alert('Camera access is required for video chat. Please allow camera permissions to continue.');
+      return;
     }
     nextMatch(true);
   };
