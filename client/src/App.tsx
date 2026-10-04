@@ -255,12 +255,12 @@ export const AppContent: React.FC<AppContentProps> = ({ settings, onUpdateSettin
         inQueueCount={inQueueCount}
       />
 
-      {/* Dedicated Hidden Audio Element for WebRTC Remote Stream Audio */}
+      {/* Dedicated Audio Element for WebRTC Remote Stream Audio (kept in DOM layout tree so mobile browsers decode audio) */}
       <audio
         ref={remoteAudioRef}
         autoPlay
         playsInline
-        className="hidden"
+        style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
         aria-hidden="true"
       />
 

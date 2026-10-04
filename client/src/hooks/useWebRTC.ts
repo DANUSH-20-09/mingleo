@@ -277,29 +277,39 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
-    // Attach local tracks with stream association, or prepare receive-only transceivers
-    if (localStream && localStream.getTracks().length > 0) {
-      localStream.getTracks().forEach(track => {
-        try {
-          if (track.kind === 'audio') {
-            track.enabled = !isAudioMuted;
-          }
-          if (track.kind === 'video') {
-            track.enabled = !isVideoDisabled;
-          }
-          pc.addTrack(track, localStream);
-          console.log(`[WebRTC] Attached local ${track.kind} track (id: ${track.id}) with stream`);
-        } catch (e) {
-          console.warn('[WebRTC] Error adding local track:', e);
-        }
-      });
+    // 1. Audio track binding or receive-only transceiver
+    const audioTrack = localStream?.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !isAudioMuted;
+      try {
+        pc.addTrack(audioTrack, localStream!);
+        console.log(`[WebRTC] Attached local audio track (${audioTrack.id})`);
+      } catch (e) {
+        console.warn('[WebRTC] Audio track attach warning:', e);
+      }
     } else {
-      // If user does not have a local camera/mic yet, declare receive-only transceivers
       try {
         pc.addTransceiver('audio', { direction: 'recvonly' });
+      } catch (e) {
+        console.warn('[WebRTC] Audio transceiver warning:', e);
+      }
+    }
+
+    // 2. Video track binding or receive-only transceiver
+    const videoTrack = localStream?.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !isVideoDisabled;
+      try {
+        pc.addTrack(videoTrack, localStream!);
+        console.log(`[WebRTC] Attached local video track (${videoTrack.id})`);
+      } catch (e) {
+        console.warn('[WebRTC] Video track attach warning:', e);
+      }
+    } else {
+      try {
         pc.addTransceiver('video', { direction: 'recvonly' });
       } catch (e) {
-        console.warn('[WebRTC] Transceiver setup warning:', e);
+        console.warn('[WebRTC] Video transceiver warning:', e);
       }
     }
 
@@ -424,7 +434,20 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
         console.log('[WebRTC] Received SDP Offer, setting remote description...');
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
-        // Flush buffered ICE candidates safely
+        const answer = await peerConnectionRef.current.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
+        await peerConnectionRef.current.setLocalDescription(answer);
+
+        socket.emit('signal_answer', {
+          roomId: matchData.roomId,
+          to: matchData.peerSocketId,
+          sdp: answer
+        });
+        console.log('[WebRTC] Created and sent SDP Answer with audio/video media sections');
+
+        // Flush buffered ICE candidates safely once local and remote descriptions are set
         while (iceCandidatesQueue.current.length > 0) {
           const cand = iceCandidatesQueue.current.shift();
           if (cand) {
@@ -435,18 +458,6 @@ export function useWebRTC({ socket, localStream, matchData }: UseWebRTCProps) {
             }
           }
         }
-
-        const answer = await peerConnectionRef.current.createAnswer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true
-        });
-        await peerConnectionRef.current.setLocalDescription(answer);
-        socket.emit('signal_answer', {
-          roomId: matchData.roomId,
-          to: matchData.peerSocketId,
-          sdp: answer
-        });
-        console.log('[WebRTC] Created and sent SDP Answer with audio/video media sections');
       } catch (err) {
         console.error('[WebRTC] Error handling signal offer:', err);
       }

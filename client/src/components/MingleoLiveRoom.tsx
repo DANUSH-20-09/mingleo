@@ -412,7 +412,7 @@ export const MingleoLiveRoom: React.FC<MingleoLiveRoomProps> = ({
                 <VideoPlayer
                   stream={remoteStream}
                   label=""
-                  muteVideoElement={false}
+                  muteVideoElement={true}
                   className="w-full h-full object-cover"
                 />
               ) : isSearching ? (
